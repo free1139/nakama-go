@@ -1286,6 +1286,100 @@ func (api *NakamaApi) AuthenticateFacebook(
 	}
 }
 
+// AuthenticateFacebookInstantGame authenticates a user with a Facebook Instant Game token against the server.
+func (api *NakamaApi) AuthenticateFacebookInstantGame(
+	basicAuthUsername string,
+	basicAuthPassword string,
+	account ApiAccountFacebookInstantGame,
+	create *bool,
+	username *string,
+	options map[string]string,
+) (any, error) {
+	// Define the URL path and query parameters
+	urlPath := "/v2/account/authenticate/facebookinstantgame"
+	queryParams := url.Values{}
+	if create != nil {
+		queryParams.Set("create", fmt.Sprintf("%v", *create))
+	}
+	if username != nil {
+		queryParams.Set("username", *username)
+	}
+
+	// Convert the account to JSON
+	bodyJson, err := json.Marshal(account)
+	if err != nil {
+		return nil, err
+	}
+
+	// Construct the full URL
+	fullUrl := api.buildFullUrl(api.BasePath, urlPath, queryParams)
+
+	// Prepare the HTTP request
+	req, err := http.NewRequest("POST", fullUrl, bytes.NewBuffer(bodyJson))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	// Set Basic Authorization header
+	if basicAuthUsername != "" {
+		encodedAuth := base64.StdEncoding.EncodeToString([]byte(basicAuthUsername + ":" + basicAuthPassword))
+		req.Header.Set("Authorization", "Basic "+encodedAuth)
+	}
+
+	// Apply additional custom headers or options if needed
+	for key, value := range options {
+		req.Header.Set(key, value)
+	}
+
+	// Create a context with a timeout
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(api.TimeoutMs)*time.Millisecond)
+	defer cancel()
+
+	// Make the HTTP request
+	client := &http.Client{}
+	responseChan := make(chan *http.Response, 1)
+	errorChan := make(chan error, 1)
+
+	// Run the HTTP request in a goroutine
+	go func() {
+		resp, err := client.Do(req.WithContext(ctx))
+		if err != nil {
+			errorChan <- err
+			return
+		}
+		responseChan <- resp
+	}()
+
+	// Wait for the response or the timeout
+	select {
+	case <-ctx.Done():
+		return nil, errors.New("request timed out")
+	case err := <-errorChan:
+		return nil, err
+	case resp := <-responseChan:
+		defer resp.Body.Close()
+
+		// Handle HTTP response
+		if resp.StatusCode == http.StatusNoContent {
+			return nil, nil
+		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+			var result any
+			bodyBytes, err := io.ReadAll(resp.Body)
+			if err != nil {
+				return nil, err
+			}
+			err = json.Unmarshal(bodyBytes, &result)
+			if err != nil {
+				return nil, err
+			}
+			return result, nil
+		} else {
+			return nil, errors.New(resp.Status)
+		}
+	}
+}
+
 // AuthenticateGameCenter authenticates a user with Apple's GameCenter against the server.
 func (api *NakamaApi) AuthenticateGameCenter(
 	basicAuthUsername string,
@@ -1380,17 +1474,17 @@ func (api *NakamaApi) AuthenticateGameCenter(
 	}
 }
 
-// AuthenticateFacebookInstantGame authenticates a user with a Facebook Instant Game token against the server.
-func (api *NakamaApi) AuthenticateFacebookInstantGame(
+// AuthenticateGoogle authenticates a user with Google against the server.
+func (api *NakamaApi) AuthenticateGoogle(
 	basicAuthUsername string,
 	basicAuthPassword string,
-	account ApiAccountFacebookInstantGame,
+	account ApiAccountGoogle,
 	create *bool,
 	username *string,
 	options map[string]string,
 ) (any, error) {
 	// Define the URL path and query parameters
-	urlPath := "/v2/account/authenticate/facebookinstantgame"
+	urlPath := "/v2/account/authenticate/google"
 	queryParams := url.Values{}
 	if create != nil {
 		queryParams.Set("create", fmt.Sprintf("%v", *create))
@@ -1419,6 +1513,780 @@ func (api *NakamaApi) AuthenticateFacebookInstantGame(
 	if basicAuthUsername != "" {
 		encodedAuth := base64.StdEncoding.EncodeToString([]byte(basicAuthUsername + ":" + basicAuthPassword))
 		req.Header.Set("Authorization", "Basic "+encodedAuth)
+	}
+
+	// Apply additional custom headers or options if needed
+	for key, value := range options {
+		req.Header.Set(key, value)
+	}
+
+	// Create a context with a timeout
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(api.TimeoutMs)*time.Millisecond)
+	defer cancel()
+
+	// Make the HTTP request
+	client := &http.Client{}
+	responseChan := make(chan *http.Response, 1)
+	errorChan := make(chan error, 1)
+
+	// Run the HTTP request in a goroutine
+	go func() {
+		resp, err := client.Do(req.WithContext(ctx))
+		if err != nil {
+			errorChan <- err
+			return
+		}
+		responseChan <- resp
+	}()
+
+	// Wait for the response or the timeout
+	select {
+	case <-ctx.Done():
+		return nil, errors.New("request timed out")
+	case err := <-errorChan:
+		return nil, err
+	case resp := <-responseChan:
+		defer resp.Body.Close()
+
+		// Handle HTTP response
+		if resp.StatusCode == http.StatusNoContent {
+			return nil, nil
+		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+			var result any
+			bodyBytes, err := io.ReadAll(resp.Body)
+			if err != nil {
+				return nil, err
+			}
+			err = json.Unmarshal(bodyBytes, &result)
+			if err != nil {
+				return nil, err
+			}
+			return result, nil
+		} else {
+			return nil, errors.New(resp.Status)
+		}
+	}
+}
+
+// AuthenticateSteam authenticates a user with Steam against the server.
+func (api *NakamaApi) AuthenticateSteam(
+	basicAuthUsername string,
+	basicAuthPassword string,
+	account ApiAccountSteam,
+	create *bool,
+	username *string,
+	sync *bool,
+	options map[string]string,
+) (any, error) {
+	// Define the URL path and query parameters
+	urlPath := "/v2/account/authenticate/steam"
+	queryParams := url.Values{}
+	if create != nil {
+		queryParams.Set("create", fmt.Sprintf("%v", *create))
+	}
+	if username != nil {
+		queryParams.Set("username", *username)
+	}
+	if sync != nil {
+		queryParams.Set("sync", fmt.Sprintf("%v", *sync))
+	}
+
+	// Convert the account to JSON
+	bodyJson, err := json.Marshal(account)
+	if err != nil {
+		return nil, err
+	}
+
+	// Construct the full URL
+	fullUrl := api.buildFullUrl(api.BasePath, urlPath, queryParams)
+
+	// Prepare the HTTP request
+	req, err := http.NewRequest("POST", fullUrl, bytes.NewBuffer(bodyJson))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	// Set Basic Authorization header
+	if basicAuthUsername != "" {
+		encodedAuth := base64.StdEncoding.EncodeToString([]byte(basicAuthUsername + ":" + basicAuthPassword))
+		req.Header.Set("Authorization", "Basic "+encodedAuth)
+	}
+
+	// Apply additional custom headers or options if needed
+	for key, value := range options {
+		req.Header.Set(key, value)
+	}
+
+	// Create a context with a timeout
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(api.TimeoutMs)*time.Millisecond)
+	defer cancel()
+
+	// Make the HTTP request
+	client := &http.Client{}
+	responseChan := make(chan *http.Response, 1)
+	errorChan := make(chan error, 1)
+
+	// Run the HTTP request in a goroutine
+	go func() {
+		resp, err := client.Do(req.WithContext(ctx))
+		if err != nil {
+			errorChan <- err
+			return
+		}
+		responseChan <- resp
+	}()
+
+	// Wait for the response or the timeout
+	select {
+	case <-ctx.Done():
+		return nil, errors.New("request timed out")
+	case err := <-errorChan:
+		return nil, err
+	case resp := <-responseChan:
+		defer resp.Body.Close()
+
+		// Handle HTTP response
+		if resp.StatusCode == http.StatusNoContent {
+			return nil, nil
+		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+			var result any
+			bodyBytes, err := io.ReadAll(resp.Body)
+			if err != nil {
+				return nil, err
+			}
+			err = json.Unmarshal(bodyBytes, &result)
+			if err != nil {
+				return nil, err
+			}
+			return result, nil
+		} else {
+			return nil, errors.New(resp.Status)
+		}
+	}
+}
+
+// LinkApple adds an Apple ID to the social profiles on the current user's account.
+func (api *NakamaApi) LinkApple(
+	bearerToken string,
+	body ApiAccountApple,
+	options map[string]string,
+) (any, error) {
+	// Define the URL path and query parameters
+	urlPath := "/v2/account/link/apple"
+	queryParams := url.Values{}
+
+	// Convert the body to JSON
+	bodyJson, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+
+	// Construct the full URL
+	fullUrl := api.buildFullUrl(api.BasePath, urlPath, queryParams)
+
+	// Prepare the HTTP request
+	req, err := http.NewRequest("POST", fullUrl, bytes.NewBuffer(bodyJson))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	// Set Bearer Token authorization header
+	if bearerToken != "" {
+		req.Header.Set("Authorization", "Bearer "+bearerToken)
+	}
+
+	// Apply additional custom headers or options if needed
+	for key, value := range options {
+		req.Header.Set(key, value)
+	}
+
+	// Create a context with a timeout
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(api.TimeoutMs)*time.Millisecond)
+	defer cancel()
+
+	// Make the HTTP request
+	client := &http.Client{}
+	responseChan := make(chan *http.Response, 1)
+	errorChan := make(chan error, 1)
+
+	// Run the HTTP request in a goroutine
+	go func() {
+		resp, err := client.Do(req.WithContext(ctx))
+		if err != nil {
+			errorChan <- err
+			return
+		}
+		responseChan <- resp
+	}()
+
+	// Wait for the response or the timeout
+	select {
+	case <-ctx.Done():
+		return nil, errors.New("request timed out")
+	case err := <-errorChan:
+		return nil, err
+	case resp := <-responseChan:
+		defer resp.Body.Close()
+
+		// Handle HTTP response
+		if resp.StatusCode == http.StatusNoContent {
+			return nil, nil
+		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+			var result any
+			bodyBytes, err := io.ReadAll(resp.Body)
+			if err != nil {
+				return nil, err
+			}
+			err = json.Unmarshal(bodyBytes, &result)
+			if err != nil {
+				return nil, err
+			}
+			return result, nil
+		} else {
+			return nil, errors.New(resp.Status)
+		}
+	}
+}
+
+// LinkCustom adds a custom ID to the social profiles on the current user's account.
+func (api *NakamaApi) LinkCustom(
+	bearerToken string,
+	body ApiAccountCustom,
+	options map[string]string,
+) (any, error) {
+	// Define the URL path and query parameters
+	urlPath := "/v2/account/link/custom"
+	queryParams := url.Values{}
+
+	// Convert the body to JSON
+	bodyJson, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+
+	// Construct the full URL
+	fullUrl := api.buildFullUrl(api.BasePath, urlPath, queryParams)
+
+	// Prepare the HTTP request
+	req, err := http.NewRequest("POST", fullUrl, bytes.NewBuffer(bodyJson))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	// Set Bearer Token authorization header
+	if bearerToken != "" {
+		req.Header.Set("Authorization", "Bearer "+bearerToken)
+	}
+
+	// Apply additional custom headers or options if needed
+	for key, value := range options {
+		req.Header.Set(key, value)
+	}
+
+	// Create a context with a timeout
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(api.TimeoutMs)*time.Millisecond)
+	defer cancel()
+
+	// Make the HTTP request
+	client := &http.Client{}
+	responseChan := make(chan *http.Response, 1)
+	errorChan := make(chan error, 1)
+
+	// Run the HTTP request in a goroutine
+	go func() {
+		resp, err := client.Do(req.WithContext(ctx))
+		if err != nil {
+			errorChan <- err
+			return
+		}
+		responseChan <- resp
+	}()
+
+	// Wait for the response or the timeout
+	select {
+	case <-ctx.Done():
+		return nil, errors.New("request timed out")
+	case err := <-errorChan:
+		return nil, err
+	case resp := <-responseChan:
+		defer resp.Body.Close()
+
+		// Handle HTTP response
+		if resp.StatusCode == http.StatusNoContent {
+			return nil, nil
+		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+			var result any
+			bodyBytes, err := io.ReadAll(resp.Body)
+			if err != nil {
+				return nil, err
+			}
+			err = json.Unmarshal(bodyBytes, &result)
+			if err != nil {
+				return nil, err
+			}
+			return result, nil
+		} else {
+			return nil, errors.New(resp.Status)
+		}
+	}
+}
+
+// LinkDevice adds a device ID to the social profiles on the current user's account.
+func (api *NakamaApi) LinkDevice(
+	bearerToken string,
+	body ApiAccountDevice,
+	options map[string]string,
+) (any, error) {
+	// Define the URL path and query parameters
+	urlPath := "/v2/account/link/device"
+	queryParams := url.Values{}
+
+	// Convert the body to JSON
+	bodyJson, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+
+	// Construct the full URL
+	fullUrl := api.buildFullUrl(api.BasePath, urlPath, queryParams)
+
+	// Prepare the HTTP request
+	req, err := http.NewRequest("POST", fullUrl, bytes.NewBuffer(bodyJson))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	// Set Bearer Token authorization header
+	if bearerToken != "" {
+		req.Header.Set("Authorization", "Bearer "+bearerToken)
+	}
+
+	// Apply additional custom headers or options if needed
+	for key, value := range options {
+		req.Header.Set(key, value)
+	}
+
+	// Create a context with a timeout
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(api.TimeoutMs)*time.Millisecond)
+	defer cancel()
+
+	// Make the HTTP request
+	client := &http.Client{}
+	responseChan := make(chan *http.Response, 1)
+	errorChan := make(chan error, 1)
+
+	// Run the HTTP request in a goroutine
+	go func() {
+		resp, err := client.Do(req.WithContext(ctx))
+		if err != nil {
+			errorChan <- err
+			return
+		}
+		responseChan <- resp
+	}()
+
+	// Wait for the response or the timeout
+	select {
+	case <-ctx.Done():
+		return nil, errors.New("request timed out")
+	case err := <-errorChan:
+		return nil, err
+	case resp := <-responseChan:
+		defer resp.Body.Close()
+
+		// Handle HTTP response
+		if resp.StatusCode == http.StatusNoContent {
+			return nil, nil
+		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+			var result any
+			bodyBytes, err := io.ReadAll(resp.Body)
+			if err != nil {
+				return nil, err
+			}
+			err = json.Unmarshal(bodyBytes, &result)
+			if err != nil {
+				return nil, err
+			}
+			return result, nil
+		} else {
+			return nil, errors.New(resp.Status)
+		}
+	}
+}
+
+// LinkEmail adds an email and password to the social profiles on the current user's account.
+func (api *NakamaApi) LinkEmail(
+	bearerToken string,
+	body ApiAccountEmail,
+	options map[string]string,
+) (any, error) {
+	// Define the URL path and query parameters
+	urlPath := "/v2/account/link/email"
+	queryParams := url.Values{}
+
+	// Convert the body to JSON
+	bodyJson, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+
+	// Construct the full URL
+	fullUrl := api.buildFullUrl(api.BasePath, urlPath, queryParams)
+
+	// Prepare the HTTP request
+	req, err := http.NewRequest("POST", fullUrl, bytes.NewBuffer(bodyJson))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	// Set Bearer Token authorization header
+	if bearerToken != "" {
+		req.Header.Set("Authorization", "Bearer "+bearerToken)
+	}
+
+	// Apply additional custom headers or options if needed
+	for key, value := range options {
+		req.Header.Set(key, value)
+	}
+
+	// Create a context with a timeout
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(api.TimeoutMs)*time.Millisecond)
+	defer cancel()
+
+	// Make the HTTP request
+	client := &http.Client{}
+	responseChan := make(chan *http.Response, 1)
+	errorChan := make(chan error, 1)
+
+	// Run the HTTP request in a goroutine
+	go func() {
+		resp, err := client.Do(req.WithContext(ctx))
+		if err != nil {
+			errorChan <- err
+			return
+		}
+		responseChan <- resp
+	}()
+
+	// Wait for the response or the timeout
+	select {
+	case <-ctx.Done():
+		return nil, errors.New("request timed out")
+	case err := <-errorChan:
+		return nil, err
+	case resp := <-responseChan:
+		defer resp.Body.Close()
+
+		// Handle HTTP response
+		if resp.StatusCode == http.StatusNoContent {
+			return nil, nil
+		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+			var result any
+			bodyBytes, err := io.ReadAll(resp.Body)
+			if err != nil {
+				return nil, err
+			}
+			err = json.Unmarshal(bodyBytes, &result)
+			if err != nil {
+				return nil, err
+			}
+			return result, nil
+		} else {
+			return nil, errors.New(resp.Status)
+		}
+	}
+}
+
+// LinkFacebook adds a Facebook account to the social profiles on the current user's account.
+func (api *NakamaApi) LinkFacebook(
+	bearerToken string,
+	account ApiAccountFacebook,
+	sync *bool,
+	options map[string]string,
+) (any, error) {
+	// Define the URL path and query parameters
+	urlPath := "/v2/account/link/facebook"
+	queryParams := url.Values{}
+	if sync != nil {
+		queryParams.Set("sync", fmt.Sprintf("%t", *sync))
+	}
+
+	// Convert the body to JSON
+	bodyJson, err := json.Marshal(account)
+	if err != nil {
+		return nil, err
+	}
+
+	// Construct the full URL
+	fullUrl := api.buildFullUrl(api.BasePath, urlPath, queryParams)
+
+	// Prepare the HTTP request
+	req, err := http.NewRequest("POST", fullUrl, bytes.NewBuffer(bodyJson))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	// Set Bearer Token authorization header
+	if bearerToken != "" {
+		req.Header.Set("Authorization", "Bearer "+bearerToken)
+	}
+
+	// Apply additional custom headers or options if needed
+	for key, value := range options {
+		req.Header.Set(key, value)
+	}
+
+	// Create a context with a timeout
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(api.TimeoutMs)*time.Millisecond)
+	defer cancel()
+
+	// Make the HTTP request
+	client := &http.Client{}
+	responseChan := make(chan *http.Response, 1)
+	errorChan := make(chan error, 1)
+
+	// Run the HTTP request in a goroutine
+	go func() {
+		resp, err := client.Do(req.WithContext(ctx))
+		if err != nil {
+			errorChan <- err
+			return
+		}
+		responseChan <- resp
+	}()
+
+	// Wait for the response or the timeout
+	select {
+	case <-ctx.Done():
+		return nil, errors.New("request timed out")
+	case err := <-errorChan:
+		return nil, err
+	case resp := <-responseChan:
+		defer resp.Body.Close()
+
+		// Handle HTTP response
+		if resp.StatusCode == http.StatusNoContent {
+			return nil, nil
+		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+			var result any
+			bodyBytes, err := io.ReadAll(resp.Body)
+			if err != nil {
+				return nil, err
+			}
+			err = json.Unmarshal(bodyBytes, &result)
+			if err != nil {
+				return nil, err
+			}
+			return result, nil
+		} else {
+			return nil, errors.New(resp.Status)
+		}
+	}
+}
+
+// LinkFacebookInstantGame adds a Facebook Instant Game account to the social profiles on the current user's account.
+func (api *NakamaApi) LinkFacebookInstantGame(
+	bearerToken string,
+	body ApiAccountFacebookInstantGame,
+	options map[string]string,
+) (any, error) {
+	// Define the URL path and query parameters
+	urlPath := "/v2/account/link/facebookinstantgame"
+	queryParams := url.Values{}
+
+	// Convert the body to JSON
+	bodyJson, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+
+	// Construct the full URL
+	fullUrl := api.buildFullUrl(api.BasePath, urlPath, queryParams)
+
+	// Prepare the HTTP request
+	req, err := http.NewRequest("POST", fullUrl, bytes.NewBuffer(bodyJson))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	// Set Bearer Token authorization header
+	if bearerToken != "" {
+		req.Header.Set("Authorization", "Bearer "+bearerToken)
+	}
+
+	// Apply additional custom headers or options if needed
+	for key, value := range options {
+		req.Header.Set(key, value)
+	}
+
+	// Create a context with a timeout
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(api.TimeoutMs)*time.Millisecond)
+	defer cancel()
+
+	// Make the HTTP request
+	client := &http.Client{}
+	responseChan := make(chan *http.Response, 1)
+	errorChan := make(chan error, 1)
+
+	// Run the HTTP request in a goroutine
+	go func() {
+		resp, err := client.Do(req.WithContext(ctx))
+		if err != nil {
+			errorChan <- err
+			return
+		}
+		responseChan <- resp
+	}()
+
+	// Wait for the response or the timeout
+	select {
+	case <-ctx.Done():
+		return nil, errors.New("request timed out")
+	case err := <-errorChan:
+		return nil, err
+	case resp := <-responseChan:
+		defer resp.Body.Close()
+
+		// Handle HTTP response
+		if resp.StatusCode == http.StatusNoContent {
+			return nil, nil
+		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+			var result any
+			bodyBytes, err := io.ReadAll(resp.Body)
+			if err != nil {
+				return nil, err
+			}
+			err = json.Unmarshal(bodyBytes, &result)
+			if err != nil {
+				return nil, err
+			}
+			return result, nil
+		} else {
+			return nil, errors.New(resp.Status)
+		}
+	}
+}
+
+// LinkGameCenter adds Apple's GameCenter to the social profiles on the current user's account.
+func (api *NakamaApi) LinkGameCenter(
+	bearerToken string,
+	body ApiAccountGameCenter,
+	options map[string]string,
+) (any, error) {
+	// Define the URL path and query parameters
+	urlPath := "/v2/account/link/gamecenter"
+	queryParams := url.Values{}
+
+	// Convert the body to JSON
+	bodyJson, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+
+	// Construct the full URL
+	fullUrl := api.buildFullUrl(api.BasePath, urlPath, queryParams)
+
+	// Prepare the HTTP request
+	req, err := http.NewRequest("POST", fullUrl, bytes.NewBuffer(bodyJson))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	// Set Bearer Token authorization header
+	if bearerToken != "" {
+		req.Header.Set("Authorization", "Bearer "+bearerToken)
+	}
+
+	// Apply additional custom headers or options if needed
+	for key, value := range options {
+		req.Header.Set(key, value)
+	}
+
+	// Create a context with a timeout
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(api.TimeoutMs)*time.Millisecond)
+	defer cancel()
+
+	// Make the HTTP request
+	client := &http.Client{}
+	responseChan := make(chan *http.Response, 1)
+	errorChan := make(chan error, 1)
+
+	// Run the HTTP request in a goroutine
+	go func() {
+		resp, err := client.Do(req.WithContext(ctx))
+		if err != nil {
+			errorChan <- err
+			return
+		}
+		responseChan <- resp
+	}()
+
+	// Wait for the response or the timeout
+	select {
+	case <-ctx.Done():
+		return nil, errors.New("request timed out")
+	case err := <-errorChan:
+		return nil, err
+	case resp := <-responseChan:
+		defer resp.Body.Close()
+
+		// Handle HTTP response
+		if resp.StatusCode == http.StatusNoContent {
+			return nil, nil
+		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+			var result any
+			bodyBytes, err := io.ReadAll(resp.Body)
+			if err != nil {
+				return nil, err
+			}
+			err = json.Unmarshal(bodyBytes, &result)
+			if err != nil {
+				return nil, err
+			}
+			return result, nil
+		} else {
+			return nil, errors.New(resp.Status)
+		}
+	}
+}
+
+// LinkGoogle adds a Google account to the social profiles on the current user's account.
+func (api *NakamaApi) LinkGoogle(
+	bearerToken string,
+	body ApiAccountGoogle,
+	options map[string]string,
+) (any, error) {
+	// Define the URL path and query parameters
+	urlPath := "/v2/account/link/google"
+	queryParams := url.Values{}
+
+	// Convert the body to JSON
+	bodyJson, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+
+	// Construct the full URL
+	fullUrl := api.buildFullUrl(api.BasePath, urlPath, queryParams)
+
+	// Prepare the HTTP request
+	req, err := http.NewRequest("POST", fullUrl, bytes.NewBuffer(bodyJson))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	// Set Bearer Token authorization header
+	if bearerToken != "" {
+		req.Header.Set("Authorization", "Bearer "+bearerToken)
 	}
 
 	// Apply additional custom headers or options if needed
