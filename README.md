@@ -10,4 +10,5 @@ This client implements the full API and socket options with the server. It's wri
 You'll need to set up the server and database before you can connect with the client. The simplest way is to use Docker
 but have a look at the [server documentation](https://github.com/heroiclabs/nakama#getting-started) for other options.
 
-1. Install and run the servers. Follow these [instructions](https://heroiclabs.com/docs/nakama/getting-started/install/docker/).
+1. Install and run the servers. Follow
+   these [instructions](https://heroiclabs.com/docs/nakama/getting-started/install/docker/).
