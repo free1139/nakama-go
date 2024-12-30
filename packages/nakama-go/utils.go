@@ -3,8 +3,8 @@ package nakama
 import (
 	"encoding/base64"
 	"encoding/json"
-	"net/http"
 	"net/url"
+	"reflect"
 )
 
 // BuildFetchOptions constructs fetch options similar to the JavaScript version.
@@ -24,7 +24,7 @@ func BuildFetchOptions(method string, options map[string]interface{}, bodyJson s
 		if h, ok := optionsHeaders.(map[string]string); ok {
 			headers = h
 		} else {
-			return nil, &json.UnmarshalTypeError{Value: "headers", Type: http.Header{}}
+			return nil, &json.UnmarshalTypeError{Value: "headers", Type: reflect.TypeOf(map[string]string{})}
 		}
 	} else {
 		headers = make(map[string]string)
