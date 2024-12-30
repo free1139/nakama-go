@@ -1,4 +1,15 @@
-package main
+package nakama
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"io"
+	"net/http"
+	"net/url"
+	"time"
+)
 
 type ApiOperator int
 
@@ -504,4 +515,220 @@ type ApiWriteStorageObject struct {
 
 type ApiWriteStorageObjectsRequest struct {
 	Objects []ApiWriteStorageObject // The objects to store on the server.
+}
+
+type NakamaApi struct {
+	ServerKey string
+	BasePath  string
+	TimeoutMs int
+}
+
+// Healthcheck is a healthcheck function that load balancers can use to check the service.
+func (api *NakamaApi) Healthcheck(bearerToken string, options map[string]string) (any, error) {
+	// Define the URL path and query parameters
+	urlPath := "/healthcheck"
+	queryParams := url.Values{}
+
+	// Construct the full URL
+	fullUrl := api.buildFullUrl(api.BasePath, urlPath, queryParams)
+
+	// Prepare the HTTP request
+	req, err := http.NewRequest("GET", fullUrl, nil)
+	if err != nil {
+		return nil, err
+	}
+	if bearerToken != "" {
+		req.Header.Set("Authorization", "Bearer "+bearerToken)
+	}
+	// Apply additional custom headers or options if needed
+	for key, value := range options {
+		req.Header.Set(key, value)
+	}
+
+	// Create a context with a timeout
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(api.TimeoutMs)*time.Millisecond)
+	defer cancel()
+
+	// Make the HTTP request
+	client := &http.Client{}
+	responseChan := make(chan *http.Response, 1)
+	errorChan := make(chan error, 1)
+
+	// Run the HTTP request in a goroutine
+	go func() {
+		resp, err := client.Do(req.WithContext(ctx))
+		if err != nil {
+			errorChan <- err
+			return
+		}
+		responseChan <- resp
+	}()
+
+	// Wait for the response or the timeout
+	select {
+	case <-ctx.Done():
+		return nil, errors.New("request timed out")
+	case err := <-errorChan:
+		return nil, err
+	case resp := <-responseChan:
+		defer resp.Body.Close()
+
+		// Handle HTTP response
+		if resp.StatusCode == http.StatusNoContent {
+			return nil, nil
+		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+			var result any
+			bodyBytes, err := io.ReadAll(resp.Body)
+			if err != nil {
+				return nil, err
+			}
+			err = json.Unmarshal(bodyBytes, &result)
+			if err != nil {
+				return nil, err
+			}
+			return result, nil
+		} else {
+			return nil, errors.New(resp.Status)
+		}
+	}
+}
+
+// DeleteAccount deletes the current user's account.
+func (api *NakamaApi) DeleteAccount(bearerToken string, options map[string]string) (any, error) {
+	// Define the URL path and query parameters
+	urlPath := "/v2/account"
+	queryParams := url.Values{}
+
+	// Construct the full URL
+	fullUrl := api.buildFullUrl(api.BasePath, urlPath, queryParams)
+
+	// Prepare the HTTP request
+	req, err := http.NewRequest("DELETE", fullUrl, nil)
+	if err != nil {
+		return nil, err
+	}
+	if bearerToken != "" {
+		req.Header.Set("Authorization", "Bearer "+bearerToken)
+	}
+	// Apply additional custom headers or options if needed
+	for key, value := range options {
+		req.Header.Set(key, value)
+	}
+
+	// Create a context with a timeout
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(api.TimeoutMs)*time.Millisecond)
+	defer cancel()
+
+	// Make the HTTP request
+	client := &http.Client{}
+	responseChan := make(chan *http.Response, 1)
+	errorChan := make(chan error, 1)
+
+	// Run the HTTP request in a goroutine
+	go func() {
+		resp, err := client.Do(req.WithContext(ctx))
+		if err != nil {
+			errorChan <- err
+			return
+		}
+		responseChan <- resp
+	}()
+
+	// Wait for the response or the timeout
+	select {
+	case <-ctx.Done():
+		return nil, errors.New("request timed out")
+	case err := <-errorChan:
+		return nil, err
+	case resp := <-responseChan:
+		defer resp.Body.Close()
+
+		// Handle HTTP response
+		if resp.StatusCode == http.StatusNoContent {
+			return nil, nil
+		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+			var result any
+			bodyBytes, err := io.ReadAll(resp.Body)
+			if err != nil {
+				return nil, err
+			}
+			err = json.Unmarshal(bodyBytes, &result)
+			if err != nil {
+				return nil, err
+			}
+			return result, nil
+		} else {
+			return nil, errors.New(resp.Status)
+		}
+	}
+}
+
+// GetAccount fetches the current user's account.
+func (api *NakamaApi) GetAccount(bearerToken string, options map[string]string) (any, error) {
+	// Define the URL path and query parameters
+	urlPath := "/v2/account"
+	queryParams := url.Values{}
+
+	// Construct the full URL
+	fullUrl := api.buildFullUrl(api.BasePath, urlPath, queryParams)
+
+	// Prepare the HTTP request
+	req, err := http.NewRequest("GET", fullUrl, nil)
+	if err != nil {
+		return nil, err
+	}
+	if bearerToken != "" {
+		req.Header.Set("Authorization", "Bearer "+bearerToken)
+	}
+	// Apply additional custom headers or options if needed
+	for key, value := range options {
+		req.Header.Set(key, value)
+	}
+
+	// Create a context with a timeout
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(api.TimeoutMs)*time.Millisecond)
+	defer cancel()
+
+	// Make the HTTP request
+	client := &http.Client{}
+	responseChan := make(chan *http.Response, 1)
+	errorChan := make(chan error, 1)
+
+	// Run the HTTP request in a goroutine
+	go func() {
+		resp, err := client.Do(req.WithContext(ctx))
+		if err != nil {
+			errorChan <- err
+			return
+		}
+		responseChan <- resp
+	}()
+
+	// Wait for the response or the timeout
+	select {
+	case <-ctx.Done():
+		return nil, errors.New("request timed out")
+	case err := <-errorChan:
+		return nil, err
+	case resp := <-responseChan:
+		defer resp.Body.Close()
+
+		// Handle HTTP response
+		if resp.StatusCode == http.StatusNoContent {
+			return nil, nil
+		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+			var result any
+			bodyBytes, err := io.ReadAll(resp.Body)
+			if err != nil {
+				return nil, err
+			}
+			err = json.Unmarshal(bodyBytes, &result)
+			if err != nil {
+				return nil, err
+			}
+			return result, nil
+		} else {
+			return nil, errors.New(resp.Status)
+		}
+	}
 }
