@@ -1,4 +1,4 @@
-package nakama_go
+package nakama
 
 import (
 	"encoding/base64"
