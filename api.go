@@ -2343,8 +2343,8 @@ func (api *NakamaApi) LinkGoogle(
 	}
 }
 
-// RefreshSession refreshes a user's session using a refresh token retrieved from a previous authentication request.
-func (api *NakamaApi) RefreshSession(
+// SessionRefresh refreshes a user's session using a refresh token retrieved from a previous authentication request.
+func (api *NakamaApi) SessionRefresh(
 	basicAuthUsername string,
 	basicAuthPassword string,
 	body ApiSessionRefreshRequest,
