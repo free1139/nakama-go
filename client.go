@@ -260,3 +260,56 @@ type SubscriptionList struct {
 	PrevCursor             *string
 	ValidatedSubscriptions []ValidatedSubscription
 }
+
+// Client represents a client for the Nakama server.
+type Client struct {
+	ExpiredTimespanMs  int64      // The expired timespan used to check session lifetime.
+	ApiClient          *NakamaApi // The low-level API client for Nakama server.
+	ServerKey          string
+	Host               string
+	Port               string
+	UseSSL             bool
+	Timeout            int
+	AutoRefreshSession bool
+}
+
+// NewClient creates a new instance of Client with the specified configuration.
+func NewClient(
+	serverKey string,
+	host string,
+	port string,
+	useSSL bool,
+	timeout int,
+	autoRefreshSession bool,
+) *Client {
+	// Default values if not provided
+	if serverKey == "" {
+		serverKey = DefaultServerKey
+	}
+	if host == "" {
+		host = DefaultHost
+	}
+	if port == "" {
+		port = DefaultPort
+	}
+	if timeout == 0 {
+		timeout = DefaultTimeoutMs
+	}
+
+	scheme := "http://"
+	if useSSL {
+		scheme = "https://"
+	}
+	basePath := scheme + host + ":" + port
+
+	return &Client{
+		ExpiredTimespanMs:  DefaultExpiredTimespanMs,
+		ApiClient:          &NakamaApi{serverKey, basePath, timeout},
+		ServerKey:          serverKey,
+		Host:               host,
+		Port:               port,
+		UseSSL:             useSSL,
+		Timeout:            timeout,
+		AutoRefreshSession: autoRefreshSession,
+	}
+}
