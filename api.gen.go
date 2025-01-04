@@ -7004,7 +7004,7 @@ func (api *NakamaApi) ListStorageObjects(
 	}
 }
 
-func (api *NakamaApi) ListPublicStorageObjects(
+func (api *NakamaApi) ListStorageObjects2(
 	bearerToken string,
 	collection string,
 	userId string,
@@ -7102,6 +7102,849 @@ func (api *NakamaApi) ListPublicStorageObjects(
 		} else {
 			bodyBytes, _ := io.ReadAll(resp.Body)
 			return ApiStorageObjectList{}, fmt.Errorf("unexpected response: %s", string(bodyBytes))
+		}
+	}
+}
+
+// ListTournaments lists current or upcoming tournaments.
+func (api *NakamaApi) ListTournaments(
+	bearerToken string,
+	categoryStart *int,
+	categoryEnd *int,
+	startTime *int64,
+	endTime *int64,
+	limit *int,
+	cursor *string,
+	options map[string]string,
+) (ApiTournamentList, error) {
+	// Define the URL path
+	urlPath := "/v2/tournament"
+
+	// Add query parameters
+	queryParams := url.Values{}
+	if categoryStart != nil {
+		queryParams.Set("category_start", fmt.Sprintf("%d", *categoryStart))
+	}
+	if categoryEnd != nil {
+		queryParams.Set("category_end", fmt.Sprintf("%d", *categoryEnd))
+	}
+	if startTime != nil {
+		queryParams.Set("start_time", fmt.Sprintf("%d", *startTime))
+	}
+	if endTime != nil {
+		queryParams.Set("end_time", fmt.Sprintf("%d", *endTime))
+	}
+	if limit != nil {
+		queryParams.Set("limit", fmt.Sprintf("%d", *limit))
+	}
+	if cursor != nil {
+		queryParams.Set("cursor", *cursor)
+	}
+
+	// No request body for this function
+	bodyJson := ""
+
+	// Construct the full URL
+	fullUrl := api.buildFullUrl(api.BasePath, urlPath, queryParams)
+
+	// Prepare the HTTP request
+	req, err := http.NewRequest("GET", fullUrl, strings.NewReader(bodyJson))
+	if err != nil {
+		return ApiTournamentList{}, err
+	}
+
+	// Set Bearer Token authorization header if provided
+	if bearerToken != "" {
+		req.Header.Set("Authorization", "Bearer "+bearerToken)
+	}
+
+	// Apply additional custom headers or options if provided
+	for key, value := range options {
+		req.Header.Set(key, value)
+	}
+
+	// Create a context with a timeout
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(api.TimeoutMs)*time.Millisecond)
+	defer cancel()
+
+	// Make the HTTP request
+	client := &http.Client{}
+	responseChan := make(chan *http.Response, 1)
+	errorChan := make(chan error, 1)
+
+	go func() {
+		resp, err := client.Do(req.WithContext(ctx))
+		if err != nil {
+			errorChan <- err
+			return
+		}
+		responseChan <- resp
+	}()
+
+	// Wait for the response or the timeout
+	select {
+	case <-ctx.Done():
+		return ApiTournamentList{}, errors.New("request timed out")
+	case err := <-errorChan:
+		return ApiTournamentList{}, err
+	case resp := <-responseChan:
+		defer resp.Body.Close()
+
+		// Handle HTTP response
+		if resp.StatusCode == http.StatusNoContent {
+			return ApiTournamentList{}, nil
+		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+			bodyBytes, err := io.ReadAll(resp.Body)
+			if err != nil {
+				return ApiTournamentList{}, err
+			}
+			var result ApiTournamentList
+			err = json.Unmarshal(bodyBytes, &result)
+			if err != nil {
+				return ApiTournamentList{}, err
+			}
+			return result, nil
+		} else {
+			bodyBytes, _ := io.ReadAll(resp.Body)
+			return ApiTournamentList{}, fmt.Errorf("unexpected response: %s", string(bodyBytes))
+		}
+	}
+}
+
+// DeleteTournamentRecord deletes a tournament record.
+func (api *NakamaApi) DeleteTournamentRecord(
+	bearerToken string,
+	tournamentId string,
+	options map[string]string,
+) error {
+	// Validate the tournamentId
+	if tournamentId == "" {
+		return errors.New("'tournamentId' is a required parameter but is empty.")
+	}
+
+	// Define the URL path
+	urlPath := "/v2/tournament/" + url.QueryEscape(tournamentId)
+
+	// No query parameters for this function
+	queryParams := url.Values{}
+
+	// No request body for DELETE request
+	bodyJson := ""
+
+	// Construct the full URL
+	fullUrl := api.buildFullUrl(api.BasePath, urlPath, queryParams)
+
+	// Prepare the HTTP request
+	req, err := http.NewRequest("DELETE", fullUrl, strings.NewReader(bodyJson))
+	if err != nil {
+		return err
+	}
+
+	// Set Bearer Token authorization header if provided
+	if bearerToken != "" {
+		req.Header.Set("Authorization", "Bearer "+bearerToken)
+	}
+
+	// Apply additional custom headers or options if provided
+	for key, value := range options {
+		req.Header.Set(key, value)
+	}
+
+	// Create a context with a timeout
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(api.TimeoutMs)*time.Millisecond)
+	defer cancel()
+
+	// Make the HTTP request
+	client := &http.Client{}
+	resp, err := client.Do(req.WithContext(ctx))
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	// Check the HTTP status code
+	if resp.StatusCode == http.StatusNoContent {
+		// Success with no content
+		return nil
+	} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		// Success with content, consume body (optional)
+		return nil
+	} else {
+		// Handle error response
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("unexpected response: %s", string(bodyBytes))
+	}
+}
+
+// ListTournamentRecords lists tournament records.
+func (api *NakamaApi) ListTournamentRecords(
+	bearerToken string,
+	tournamentId string,
+	ownerIds []string,
+	limit *int,
+	cursor *string,
+	expiry *string,
+	options map[string]string,
+) (ApiTournamentRecordList, error) {
+
+	// Validate the tournamentId
+	if tournamentId == "" {
+		return ApiTournamentRecordList{}, errors.New("'tournamentId' is a required parameter but is empty.")
+	}
+
+	// Define the URL path
+	urlPath := "/v2/tournament/" + url.QueryEscape(tournamentId)
+
+	// Add query parameters
+	queryParams := url.Values{}
+	if len(ownerIds) > 0 {
+		for _, id := range ownerIds {
+			queryParams.Add("owner_ids", id)
+		}
+	}
+	if limit != nil {
+		queryParams.Set("limit", fmt.Sprintf("%d", *limit))
+	}
+	if cursor != nil {
+		queryParams.Set("cursor", *cursor)
+	}
+	if expiry != nil {
+		queryParams.Set("expiry", *expiry)
+	}
+
+	// No request body for this function
+	bodyJson := ""
+
+	// Construct the full URL
+	fullUrl := api.buildFullUrl(api.BasePath, urlPath, queryParams)
+
+	// Prepare the HTTP request
+	req, err := http.NewRequest("GET", fullUrl, strings.NewReader(bodyJson))
+	if err != nil {
+		return ApiTournamentRecordList{}, err
+	}
+
+	// Set Bearer Token authorization header if provided
+	if bearerToken != "" {
+		req.Header.Set("Authorization", "Bearer "+bearerToken)
+	}
+
+	// Apply additional custom headers or options if provided
+	for key, value := range options {
+		req.Header.Set(key, value)
+	}
+
+	// Create a context with a timeout
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(api.TimeoutMs)*time.Millisecond)
+	defer cancel()
+
+	// Make the HTTP request
+	client := &http.Client{}
+	responseChan := make(chan *http.Response, 1)
+	errorChan := make(chan error, 1)
+
+	go func() {
+		resp, err := client.Do(req.WithContext(ctx))
+		if err != nil {
+			errorChan <- err
+			return
+		}
+		responseChan <- resp
+	}()
+
+	// Wait for the response or the timeout
+	select {
+	case <-ctx.Done():
+		return ApiTournamentRecordList{}, errors.New("request timed out")
+	case err := <-errorChan:
+		return ApiTournamentRecordList{}, err
+	case resp := <-responseChan:
+		defer resp.Body.Close()
+
+		// Handle HTTP response
+		if resp.StatusCode == http.StatusNoContent {
+			return ApiTournamentRecordList{}, nil
+		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+			bodyBytes, err := io.ReadAll(resp.Body)
+			if err != nil {
+				return ApiTournamentRecordList{}, err
+			}
+			var result ApiTournamentRecordList
+			err = json.Unmarshal(bodyBytes, &result)
+			if err != nil {
+				return ApiTournamentRecordList{}, err
+			}
+			return result, nil
+		} else {
+			bodyBytes, _ := io.ReadAll(resp.Body)
+			return ApiTournamentRecordList{}, fmt.Errorf("unexpected response: %s", string(bodyBytes))
+		}
+	}
+}
+
+// WriteTournamentRecord2 writes a record to a tournament.
+func (api *NakamaApi) WriteTournamentRecord2(
+	bearerToken string,
+	tournamentId string,
+	record WriteTournamentRecordRequestTournamentRecordWrite,
+	options map[string]string,
+) (ApiLeaderboardRecord, error) {
+
+	// Validate the tournamentId and record
+	if tournamentId == "" {
+		return ApiLeaderboardRecord{}, errors.New("'tournamentId' is a required parameter but is empty.")
+	}
+	if record == (WriteTournamentRecordRequestTournamentRecordWrite{}) {
+		return ApiLeaderboardRecord{}, errors.New("'record' is a required parameter but is empty.")
+	}
+
+	// Define the URL path
+	urlPath := "/v2/tournament/" + url.QueryEscape(tournamentId)
+
+	// Prepare the request body
+	bodyJson, err := json.Marshal(record)
+	if err != nil {
+		return ApiLeaderboardRecord{}, fmt.Errorf("failed to marshal record: %w", err)
+	}
+
+	// Construct the full URL
+	fullUrl := api.buildFullUrl(api.BasePath, urlPath, nil)
+
+	// Prepare the HTTP request
+	req, err := http.NewRequest("POST", fullUrl, strings.NewReader(string(bodyJson)))
+	if err != nil {
+		return ApiLeaderboardRecord{}, err
+	}
+
+	// Set Bearer Token authorization header if provided
+	if bearerToken != "" {
+		req.Header.Set("Authorization", "Bearer "+bearerToken)
+	}
+
+	// Apply additional custom headers or options if provided
+	for key, value := range options {
+		req.Header.Set(key, value)
+	}
+
+	// Create a context with a timeout
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(api.TimeoutMs)*time.Millisecond)
+	defer cancel()
+
+	// Make the HTTP request
+	client := &http.Client{}
+	resp, err := client.Do(req.WithContext(ctx))
+	if err != nil {
+		return ApiLeaderboardRecord{}, err
+	}
+	defer resp.Body.Close()
+
+	// Handle the HTTP response
+	if resp.StatusCode == http.StatusNoContent {
+		// Success with no content
+		return ApiLeaderboardRecord{}, nil
+	} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		// Success with content, parse response body
+		bodyBytes, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return ApiLeaderboardRecord{}, err
+		}
+		var result ApiLeaderboardRecord
+		err = json.Unmarshal(bodyBytes, &result)
+		if err != nil {
+			return ApiLeaderboardRecord{}, err
+		}
+		return result, nil
+	} else {
+		// Handle error response
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return ApiLeaderboardRecord{}, fmt.Errorf("unexpected response: %s", string(bodyBytes))
+	}
+}
+
+// WriteTournamentRecord writes a record to a tournament.
+func (api *NakamaApi) WriteTournamentRecord(
+	bearerToken string,
+	tournamentId string,
+	record WriteTournamentRecordRequestTournamentRecordWrite,
+	options map[string]string,
+) (ApiLeaderboardRecord, error) {
+
+	// Validate the tournamentId and record
+	if tournamentId == "" {
+		return ApiLeaderboardRecord{}, errors.New("'tournamentId' is a required parameter but is empty.")
+	}
+	if record == (WriteTournamentRecordRequestTournamentRecordWrite{}) {
+		return ApiLeaderboardRecord{}, errors.New("'record' is a required parameter but is empty.")
+	}
+
+	// Define the URL path
+	urlPath := "/v2/tournament/" + url.QueryEscape(tournamentId)
+
+	// Prepare the request body
+	bodyJson, err := json.Marshal(record)
+	if err != nil {
+		return ApiLeaderboardRecord{}, fmt.Errorf("failed to marshal record: %w", err)
+	}
+
+	// Construct the full URL
+	fullUrl := api.buildFullUrl(api.BasePath, urlPath, nil)
+
+	// Prepare the HTTP request
+	req, err := http.NewRequest("PUT", fullUrl, strings.NewReader(string(bodyJson)))
+	if err != nil {
+		return ApiLeaderboardRecord{}, err
+	}
+
+	// Set Bearer Token authorization header if provided
+	if bearerToken != "" {
+		req.Header.Set("Authorization", "Bearer "+bearerToken)
+	}
+
+	// Apply additional custom headers or options if provided
+	for key, value := range options {
+		req.Header.Set(key, value)
+	}
+
+	// Create a context with a timeout
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(api.TimeoutMs)*time.Millisecond)
+	defer cancel()
+
+	// Make the HTTP request
+	client := &http.Client{}
+	responseChan := make(chan *http.Response, 1)
+	errorChan := make(chan error, 1)
+
+	go func() {
+		resp, err := client.Do(req.WithContext(ctx))
+		if err != nil {
+			errorChan <- err
+			return
+		}
+		responseChan <- resp
+	}()
+
+	// Wait for the response or the timeout
+	select {
+	case <-ctx.Done():
+		return ApiLeaderboardRecord{}, errors.New("request timed out")
+	case err := <-errorChan:
+		return ApiLeaderboardRecord{}, err
+	case resp := <-responseChan:
+		defer resp.Body.Close()
+
+		if resp.StatusCode == http.StatusNoContent {
+			return ApiLeaderboardRecord{}, nil
+		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+			// Success with content, parse response body
+			bodyBytes, err := io.ReadAll(resp.Body)
+			if err != nil {
+				return ApiLeaderboardRecord{}, err
+			}
+			var result ApiLeaderboardRecord
+			err = json.Unmarshal(bodyBytes, &result)
+			if err != nil {
+				return ApiLeaderboardRecord{}, err
+			}
+			return result, nil
+		} else {
+			// Handle error response
+			bodyBytes, _ := io.ReadAll(resp.Body)
+			return ApiLeaderboardRecord{}, fmt.Errorf("unexpected response: %s", string(bodyBytes))
+		}
+	}
+}
+
+// JoinTournament attempts to join an open and running tournament.
+func (api *NakamaApi) JoinTournament(
+	bearerToken string,
+	tournamentId string,
+	options map[string]string,
+) (interface{}, error) {
+
+	// Validate the tournamentId
+	if tournamentId == "" {
+		return nil, errors.New("'tournamentId' is a required parameter but is empty.")
+	}
+
+	// Define the URL path
+	urlPath := "/v2/tournament/" + url.QueryEscape(tournamentId) + "/join"
+
+	// Prepare the query params (if any, currently empty map)
+	queryParams := url.Values{}
+
+	// Prepare the request body
+	bodyJson := ""
+
+	// Construct the full URL
+	fullUrl := api.buildFullUrl(api.BasePath, urlPath, queryParams)
+
+	// Prepare the HTTP request
+	req, err := http.NewRequest("POST", fullUrl, strings.NewReader(bodyJson))
+	if err != nil {
+		return nil, err
+	}
+
+	// Set Bearer Token authorization header if provided
+	if bearerToken != "" {
+		req.Header.Set("Authorization", "Bearer "+bearerToken)
+	}
+
+	// Apply additional custom headers or options if provided
+	for key, value := range options {
+		req.Header.Set(key, value)
+	}
+
+	// Create a context with a timeout
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(api.TimeoutMs)*time.Millisecond)
+	defer cancel()
+
+	// Make the HTTP request
+	client := &http.Client{}
+	responseChan := make(chan *http.Response, 1)
+	errorChan := make(chan error, 1)
+
+	go func() {
+		resp, err := client.Do(req.WithContext(ctx))
+		if err != nil {
+			errorChan <- err
+			return
+		}
+		responseChan <- resp
+	}()
+
+	// Wait for the response or the timeout
+	select {
+	case <-ctx.Done():
+		return nil, errors.New("request timed out")
+	case err := <-errorChan:
+		return nil, err
+	case resp := <-responseChan:
+		defer resp.Body.Close()
+
+		if resp.StatusCode == http.StatusNoContent {
+			// Success with no content
+			return nil, nil
+		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+			// Success with content, parse response body
+			bodyBytes, err := io.ReadAll(resp.Body)
+			if err != nil {
+				return nil, err
+			}
+			var result interface{}
+			err = json.Unmarshal(bodyBytes, &result)
+			if err != nil {
+				return nil, err
+			}
+			return result, nil
+		} else {
+			// Handle error response
+			bodyBytes, _ := io.ReadAll(resp.Body)
+			return nil, fmt.Errorf("unexpected response: %s", string(bodyBytes))
+		}
+	}
+}
+
+// ListTournamentRecordsAroundOwner lists tournament records for a given owner.
+func (api *NakamaApi) ListTournamentRecordsAroundOwner(
+	bearerToken string,
+	tournamentId string,
+	ownerId string,
+	limit *int,
+	expiry *string,
+	cursor *string,
+	options map[string]string,
+) (ApiTournamentRecordList, error) {
+
+	// Validate the tournamentId and ownerId
+	if tournamentId == "" {
+		return ApiTournamentRecordList{}, errors.New("'tournamentId' is a required parameter but is empty.")
+	}
+	if ownerId == "" {
+		return ApiTournamentRecordList{}, errors.New("'ownerId' is a required parameter but is empty.")
+	}
+
+	// Define the URL path
+	urlPath := "/v2/tournament/" + url.QueryEscape(tournamentId) + "/owner/" + url.QueryEscape(ownerId)
+
+	// Prepare the query params
+	queryParams := url.Values{}
+	if limit != nil {
+		queryParams.Set("limit", fmt.Sprintf("%d", *limit))
+	}
+	if expiry != nil {
+		queryParams.Set("expiry", *expiry)
+	}
+	if cursor != nil {
+		queryParams.Set("cursor", *cursor)
+	}
+
+	// Prepare the request body (empty)
+	bodyJson := ""
+
+	// Construct the full URL
+	fullUrl := api.buildFullUrl(api.BasePath, urlPath, queryParams)
+
+	// Prepare the HTTP request
+	req, err := http.NewRequest("GET", fullUrl, strings.NewReader(bodyJson))
+	if err != nil {
+		return ApiTournamentRecordList{}, err
+	}
+
+	// Set Bearer Token authorization header if provided
+	if bearerToken != "" {
+		req.Header.Set("Authorization", "Bearer "+bearerToken)
+	}
+
+	// Apply additional custom headers or options if provided
+	for key, value := range options {
+		req.Header.Set(key, value)
+	}
+
+	// Create a context with a timeout
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(api.TimeoutMs)*time.Millisecond)
+	defer cancel()
+
+	// Make the HTTP request
+	client := &http.Client{}
+	responseChan := make(chan *http.Response, 1)
+	errorChan := make(chan error, 1)
+
+	go func() {
+		resp, err := client.Do(req.WithContext(ctx))
+		if err != nil {
+			errorChan <- err
+			return
+		}
+		responseChan <- resp
+	}()
+
+	// Wait for the response or the timeout
+	select {
+	case <-ctx.Done():
+		return ApiTournamentRecordList{}, errors.New("request timed out")
+	case err := <-errorChan:
+		return ApiTournamentRecordList{}, err
+	case resp := <-responseChan:
+		defer resp.Body.Close()
+
+		if resp.StatusCode == http.StatusNoContent {
+			// Success with no content
+			return ApiTournamentRecordList{}, nil
+		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+			// Success with content, parse response body
+			bodyBytes, err := io.ReadAll(resp.Body)
+			if err != nil {
+				return ApiTournamentRecordList{}, err
+			}
+			var result ApiTournamentRecordList
+			err = json.Unmarshal(bodyBytes, &result)
+			if err != nil {
+				return ApiTournamentRecordList{}, err
+			}
+			return result, nil
+		} else {
+			// Handle error response
+			bodyBytes, _ := io.ReadAll(resp.Body)
+			return ApiTournamentRecordList{}, fmt.Errorf("unexpected response: %s", string(bodyBytes))
+		}
+	}
+}
+
+// GetUsers fetches zero or more users by ID and/or username.
+func (api *NakamaApi) GetUsers(
+	bearerToken string,
+	ids []string,
+	usernames []string,
+	facebookIds []string,
+	options map[string]string,
+) (ApiUsers, error) {
+
+	// Define the URL path
+	urlPath := "/v2/user"
+
+	// Prepare the query params
+	queryParams := url.Values{}
+	if len(ids) > 0 {
+		queryParams["ids"] = ids
+	}
+	if len(usernames) > 0 {
+		queryParams["usernames"] = usernames
+	}
+	if len(facebookIds) > 0 {
+		queryParams["facebook_ids"] = facebookIds
+	}
+
+	// Prepare the request body (empty)
+	bodyJson := ""
+
+	// Construct the full URL
+	fullUrl := api.buildFullUrl(api.BasePath, urlPath, queryParams)
+
+	// Prepare the HTTP request
+	req, err := http.NewRequest("GET", fullUrl, strings.NewReader(bodyJson))
+	if err != nil {
+		return ApiUsers{}, err
+	}
+
+	// Set Bearer Token authorization header if provided
+	if bearerToken != "" {
+		req.Header.Set("Authorization", "Bearer "+bearerToken)
+	}
+
+	// Apply additional custom headers or options if provided
+	for key, value := range options {
+		req.Header.Set(key, value)
+	}
+
+	// Create a context with a timeout
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(api.TimeoutMs)*time.Millisecond)
+	defer cancel()
+
+	// Make the HTTP request
+	client := &http.Client{}
+	responseChan := make(chan *http.Response, 1)
+	errorChan := make(chan error, 1)
+
+	go func() {
+		resp, err := client.Do(req.WithContext(ctx))
+		if err != nil {
+			errorChan <- err
+			return
+		}
+		responseChan <- resp
+	}()
+
+	// Wait for the response or the timeout
+	select {
+	case <-ctx.Done():
+		return ApiUsers{}, errors.New("request timed out")
+	case err := <-errorChan:
+		return ApiUsers{}, err
+	case resp := <-responseChan:
+		defer resp.Body.Close()
+
+		if resp.StatusCode == http.StatusNoContent {
+			// Success with no content
+			return ApiUsers{}, nil
+		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+			// Success with content, parse response body
+			bodyBytes, err := io.ReadAll(resp.Body)
+			if err != nil {
+				return ApiUsers{}, err
+			}
+			var result ApiUsers
+			err = json.Unmarshal(bodyBytes, &result)
+			if err != nil {
+				return ApiUsers{}, err
+			}
+			return result, nil
+		} else {
+			// Handle error response
+			bodyBytes, _ := io.ReadAll(resp.Body)
+			return ApiUsers{}, fmt.Errorf("unexpected response: %s", string(bodyBytes))
+		}
+	}
+}
+
+// ListUserGroups lists the groups the current user belongs to.
+func (api *NakamaApi) ListUserGroups(
+	bearerToken string,
+	userId string,
+	limit *int,
+	state *int,
+	cursor *string,
+	options map[string]string,
+) (ApiUserGroupList, error) {
+
+	// Validate required parameters
+	if userId == "" {
+		return ApiUserGroupList{}, errors.New("'userId' is a required parameter but is empty.")
+	}
+
+	// Define the URL path and replace placeholder
+	urlPath := "/v2/user/{userId}/group"
+	urlPath = strings.Replace(urlPath, "{userId}", url.QueryEscape(userId), 1)
+
+	// Prepare the query params
+	queryParams := url.Values{}
+	if limit != nil {
+		queryParams.Set("limit", strconv.Itoa(*limit))
+	}
+	if state != nil {
+		queryParams.Set("state", strconv.Itoa(*state))
+	}
+	if cursor != nil {
+		queryParams.Set("cursor", *cursor)
+	}
+
+	// Prepare the request body (empty)
+	bodyJson := ""
+
+	// Construct the full URL
+	fullUrl := api.buildFullUrl(api.BasePath, urlPath, queryParams)
+
+	// Prepare the HTTP request
+	req, err := http.NewRequest("GET", fullUrl, strings.NewReader(bodyJson))
+	if err != nil {
+		return ApiUserGroupList{}, err
+	}
+
+	// Set Bearer Token authorization header if provided
+	if bearerToken != "" {
+		req.Header.Set("Authorization", "Bearer "+bearerToken)
+	}
+
+	// Apply additional custom headers or options if provided
+	for key, value := range options {
+		req.Header.Set(key, value)
+	}
+
+	// Create a context with a timeout
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(api.TimeoutMs)*time.Millisecond)
+	defer cancel()
+
+	// Make the HTTP request
+	client := &http.Client{}
+	responseChan := make(chan *http.Response, 1)
+	errorChan := make(chan error, 1)
+
+	go func() {
+		resp, err := client.Do(req.WithContext(ctx))
+		if err != nil {
+			errorChan <- err
+			return
+		}
+		responseChan <- resp
+	}()
+
+	// Wait for the response or the timeout
+	select {
+	case <-ctx.Done():
+		return ApiUserGroupList{}, errors.New("request timed out")
+	case err := <-errorChan:
+		return ApiUserGroupList{}, err
+	case resp := <-responseChan:
+		defer resp.Body.Close()
+
+		if resp.StatusCode == http.StatusNoContent {
+			// Success with no content
+			return ApiUserGroupList{}, nil
+		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+			// Success with content, parse response body
+			bodyBytes, err := io.ReadAll(resp.Body)
+			if err != nil {
+				return ApiUserGroupList{}, err
+			}
+			var result ApiUserGroupList
+			err = json.Unmarshal(bodyBytes, &result)
+			if err != nil {
+				return ApiUserGroupList{}, err
+			}
+			return result, nil
+		} else {
+			// Handle error response
+			bodyBytes, _ := io.ReadAll(resp.Body)
+			return ApiUserGroupList{}, fmt.Errorf("unexpected response: %s", string(bodyBytes))
 		}
 	}
 }
