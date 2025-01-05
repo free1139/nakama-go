@@ -641,7 +641,7 @@ func (c *Client) CreateSocket(useSSL bool, verbose bool, adapter WebSocketAdapte
 		adapter = NewWebSocketAdapterText() // Assuming there is a function NewWebSocketAdapterText.
 	}
 	if sendTimeoutMs == 0 {
-		sendTimeoutMs = DefaultSocket.DefaultSendTimeoutMs
+		sendTimeoutMs = DefaultSendTimeoutMs
 	}
 	return NewDefaultSocket(c.Host, c.Port, useSSL, verbose, adapter, sendTimeoutMs)
 }
