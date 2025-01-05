@@ -358,7 +358,7 @@ func (c *Client) AddFriends(session *Session, ids []string, usernames []string) 
 func (c *Client) AuthenticateApple(token string, create *bool, username *string, vars map[string]string) (*Session, error) {
 	// Prepare the authentication request
 	request := ApiAccountApple{
-		Token: token,
+		Token: &token,
 		Vars:  vars,
 	}
 
@@ -370,9 +370,9 @@ func (c *Client) AuthenticateApple(token string, create *bool, username *string,
 
 	// Return a new Session object
 	return &Session{
-		Token:        apiSession.Token,
-		RefreshToken: apiSession.RefreshToken,
-		Created:      apiSession.Created,
+		Token:        *apiSession.Token,
+		RefreshToken: *apiSession.RefreshToken,
+		Created:      *apiSession.Created,
 	}, nil
 }
 
@@ -380,7 +380,7 @@ func (c *Client) AuthenticateApple(token string, create *bool, username *string,
 func (c *Client) AuthenticateCustom(id string, create *bool, username *string, vars map[string]string) (*Session, error) {
 	// Prepare the authentication request
 	request := ApiAccountCustom{
-		ID:   id,
+		ID:   &id,
 		Vars: vars,
 	}
 
@@ -392,9 +392,9 @@ func (c *Client) AuthenticateCustom(id string, create *bool, username *string, v
 
 	// Return a new Session object
 	return &Session{
-		Token:        apiSession.Token,
-		RefreshToken: apiSession.RefreshToken,
-		Created:      apiSession.Created,
+		Token:        *apiSession.Token,
+		RefreshToken: *apiSession.RefreshToken,
+		Created:      *apiSession.Created,
 	}, nil
 }
 
@@ -402,7 +402,7 @@ func (c *Client) AuthenticateCustom(id string, create *bool, username *string, v
 func (c *Client) AuthenticateDevice(id string, create *bool, username *string, vars map[string]string) (*Session, error) {
 	// Prepare the authentication request
 	request := ApiAccountDevice{
-		ID:   id,
+		ID:   &id,
 		Vars: vars,
 	}
 
@@ -414,9 +414,9 @@ func (c *Client) AuthenticateDevice(id string, create *bool, username *string, v
 
 	// Return a new Session object
 	return &Session{
-		Token:        apiSession.Token,
-		RefreshToken: apiSession.RefreshToken,
-		Created:      apiSession.Created,
+		Token:        *apiSession.Token,
+		RefreshToken: *apiSession.RefreshToken,
+		Created:      *apiSession.Created,
 	}, nil
 }
 
@@ -424,8 +424,8 @@ func (c *Client) AuthenticateDevice(id string, create *bool, username *string, v
 func (c *Client) AuthenticateEmail(email string, password string, create *bool, username *string, vars map[string]string) (*Session, error) {
 	// Prepare the authentication request
 	request := ApiAccountEmail{
-		Email:    email,
-		Password: password,
+		Email:    &email,
+		Password: &password,
 		Vars:     vars,
 	}
 
@@ -437,9 +437,9 @@ func (c *Client) AuthenticateEmail(email string, password string, create *bool, 
 
 	// Return a new Session object
 	return &Session{
-		Token:        apiSession.Token,
-		RefreshToken: apiSession.RefreshToken,
-		Created:      apiSession.Created,
+		Token:        *apiSession.Token,
+		RefreshToken: *apiSession.RefreshToken,
+		Created:      *apiSession.Created,
 	}, nil
 }
 
@@ -447,7 +447,7 @@ func (c *Client) AuthenticateEmail(email string, password string, create *bool, 
 func (c *Client) AuthenticateFacebookInstantGame(signedPlayerInfo string, create *bool, username *string, vars map[string]string) (*Session, error) {
 	// Prepare the authentication request
 	request := ApiAccountFacebookInstantGame{
-		SignedPlayerInfo: signedPlayerInfo,
+		SignedPlayerInfo: &signedPlayerInfo,
 		Vars:             vars,
 	}
 
@@ -459,9 +459,9 @@ func (c *Client) AuthenticateFacebookInstantGame(signedPlayerInfo string, create
 
 	// Return a new Session object
 	return &Session{
-		Token:        apiSession.Token,
-		RefreshToken: apiSession.RefreshToken,
-		Created:      apiSession.Created,
+		Token:        *apiSession.Token,
+		RefreshToken: *apiSession.RefreshToken,
+		Created:      *apiSession.Created,
 	}, nil
 }
 
@@ -480,7 +480,7 @@ func (c *Client) RefreshSession(session *Session, vars map[string]string) (*Sess
 	}
 
 	apiSession, err := c.ApiClient.SessionRefresh(c.ServerKey, "", ApiSessionRefreshRequest{
-		Token: session.RefreshToken,
+		Token: &session.RefreshToken,
 		Vars:  vars,
 	}, make(map[string]string))
 
@@ -488,6 +488,6 @@ func (c *Client) RefreshSession(session *Session, vars map[string]string) (*Sess
 		return nil, err
 	}
 
-	session.Update(apiSession.Token, apiSession.RefreshToken)
+	session.Update(*apiSession.Token, *apiSession.RefreshToken)
 	return session, nil
 }
