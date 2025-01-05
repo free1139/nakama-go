@@ -821,7 +821,7 @@ func (api *NakamaApi) UpdateAccount(bearerToken string, body ApiUpdateAccountReq
 }
 
 // AuthenticateApple authenticates a user with an Apple ID against the server.
-func (api *NakamaApi) AuthenticateApple(basicAuthUsername string, basicAuthPassword string, account ApiAccountApple, create *bool, username *string, options map[string]string) (any, error) {
+func (api *NakamaApi) AuthenticateApple(basicAuthUsername string, basicAuthPassword string, account ApiAccountApple, create *bool, username *string, options map[string]string) (*ApiSession, error) {
 	// Define the URL path and query parameters
 	urlPath := "/v2/account/authenticate/apple"
 	queryParams := url.Values{}
@@ -891,7 +891,7 @@ func (api *NakamaApi) AuthenticateApple(basicAuthUsername string, basicAuthPassw
 		if resp.StatusCode == http.StatusNoContent {
 			return nil, nil
 		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			var result any
+			var result *ApiSession
 			bodyBytes, err := io.ReadAll(resp.Body)
 			if err != nil {
 				return nil, err
@@ -915,7 +915,7 @@ func (api *NakamaApi) AuthenticateCustom(
 	create *bool,
 	username *string,
 	options map[string]string,
-) (any, error) {
+) (*ApiSession, error) {
 	// Define the URL path and query parameters
 	urlPath := "/v2/account/authenticate/custom"
 	queryParams := url.Values{}
@@ -985,7 +985,7 @@ func (api *NakamaApi) AuthenticateCustom(
 		if resp.StatusCode == http.StatusNoContent {
 			return nil, nil
 		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			var result any
+			var result *ApiSession
 			bodyBytes, err := io.ReadAll(resp.Body)
 			if err != nil {
 				return nil, err
@@ -1009,7 +1009,7 @@ func (api *NakamaApi) AuthenticateDevice(
 	create *bool,
 	username *string,
 	options map[string]string,
-) (any, error) {
+) (*ApiSession, error) {
 	// Define the URL path and query parameters
 	urlPath := "/v2/account/authenticate/device"
 	queryParams := url.Values{}
@@ -1079,7 +1079,7 @@ func (api *NakamaApi) AuthenticateDevice(
 		if resp.StatusCode == http.StatusNoContent {
 			return nil, nil
 		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			var result any
+			var result *ApiSession
 			bodyBytes, err := io.ReadAll(resp.Body)
 			if err != nil {
 				return nil, err
@@ -2349,7 +2349,7 @@ func (api *NakamaApi) SessionRefresh(
 	basicAuthPassword string,
 	body ApiSessionRefreshRequest,
 	options map[string]string,
-) (any, error) {
+) (*ApiSession, error) {
 	// Define the URL path and query parameters
 	urlPath := "/v2/account/session/refresh"
 	queryParams := url.Values{}
@@ -2413,7 +2413,7 @@ func (api *NakamaApi) SessionRefresh(
 		if resp.StatusCode == http.StatusNoContent {
 			return nil, nil
 		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			var result ApiSession
+			var result *ApiSession
 			bodyBytes, err := io.ReadAll(resp.Body)
 			if err != nil {
 				return nil, err

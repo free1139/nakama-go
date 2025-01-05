@@ -1,5 +1,11 @@
 package nakama
 
+import (
+	"fmt"
+	"log"
+	"time"
+)
+
 // Default configuration values
 const (
 	DefaultHost              = "127.0.0.1"
@@ -312,4 +318,131 @@ func NewClient(
 		Timeout:            timeout,
 		AutoRefreshSession: autoRefreshSession,
 	}
+}
+
+// AddGroupUsers adds users to a group, or accepts their join requests.
+func (c *Client) AddGroupUsers(session *Session, groupId string, ids []string) (bool, error) {
+	if c.AutoRefreshSession && session.RefreshToken != "" &&
+		session.IsExpired((time.Now().UnixMilli()+c.ExpiredTimespanMs)/1000) {
+		if _, err := c.RefreshSession(session, nil); err != nil {
+			return false, err
+		}
+	}
+
+	response, err := c.ApiClient.AddGroupUsers(session.Token, groupId, ids, make(map[string]string))
+	if err != nil {
+		return false, err
+	}
+
+	return response != nil, nil
+}
+
+// AddFriends adds friends by ID or username to a user's account.
+func (c *Client) AddFriends(session *Session, ids []string, usernames []string) (bool, error) {
+	if c.AutoRefreshSession && session.RefreshToken != "" &&
+		session.IsExpired((time.Now().UnixMilli()+c.ExpiredTimespanMs)/1000) {
+		if _, err := c.RefreshSession(session, nil); err != nil {
+			return false, err
+		}
+	}
+
+	response, err := c.ApiClient.AddFriends(session.Token, ids, usernames, make(map[string]string))
+	if err != nil {
+		return false, err
+	}
+
+	return response != nil, nil
+}
+
+// AuthenticateApple authenticates a user with an Apple ID against the server.
+func (c *Client) AuthenticateApple(token string, create *bool, username *string, vars map[string]string) (*Session, error) {
+	// Prepare the authentication request
+	request := ApiAccountApple{
+		Token: token,
+		Vars:  vars,
+	}
+
+	// Call the API client to authenticate with Apple
+	apiSession, err := c.ApiClient.AuthenticateApple(c.ServerKey, "", request, create, username, make(map[string]string))
+	if err != nil {
+		return nil, err
+	}
+
+	// Return a new Session object
+	return &Session{
+		Token:        apiSession.Token,
+		RefreshToken: apiSession.RefreshToken,
+		Created:      apiSession.Created,
+	}, nil
+}
+
+// AuthenticateCustom authenticates a user with a custom ID against the server.
+func (c *Client) AuthenticateCustom(id string, create *bool, username *string, vars map[string]string) (*Session, error) {
+	// Prepare the authentication request
+	request := ApiAccountCustom{
+		ID:   id,
+		Vars: vars,
+	}
+
+	// Call the API client to authenticate with a custom ID
+	apiSession, err := c.ApiClient.AuthenticateCustom(c.ServerKey, "", request, create, username, make(map[string]string))
+	if err != nil {
+		return nil, err
+	}
+
+	// Return a new Session object
+	return &Session{
+		Token:        apiSession.Token,
+		RefreshToken: apiSession.RefreshToken,
+		Created:      apiSession.Created,
+	}, nil
+}
+
+// AuthenticateDevice authenticates a user with a device ID against the server.
+func (c *Client) AuthenticateDevice(id string, create *bool, username *string, vars map[string]string) (*Session, error) {
+	// Prepare the authentication request
+	request := ApiAccountDevice{
+		ID:   id,
+		Vars: vars,
+	}
+
+	// Call the API client to authenticate with a device ID
+	apiSession, err := c.ApiClient.AuthenticateDevice(c.ServerKey, "", request, create, username, make(map[string]string))
+	if err != nil {
+		return nil, err
+	}
+
+	// Return a new Session object
+	return &Session{
+		Token:        apiSession.Token,
+		RefreshToken: apiSession.RefreshToken,
+		Created:      apiSession.Created,
+	}, nil
+}
+
+// RefreshSession refreshes a user's session using a refresh token retrieved from a previous authentication request.
+func (c *Client) RefreshSession(session *Session, vars map[string]string) (*Session, error) {
+	if session == nil {
+		return nil, fmt.Errorf("cannot refresh a null session")
+	}
+
+	if session.ExpiresAt != nil && *session.ExpiresAt-session.CreatedAt < 70 {
+		log.Println("Session lifetime too short, please set '--session.token_expiry_sec' option. See the documentation for more info: https://heroiclabs.com/docs/nakama/getting-started/configuration/#session")
+	}
+
+	if session.RefreshExpiresAt != nil && *session.RefreshExpiresAt-session.CreatedAt < 3700 {
+		log.Println("Session refresh lifetime too short, please set '--session.refresh_token_expiry_sec' option. See the documentation for more info: https://heroiclabs.com/docs/nakama/getting-started/configuration/#session")
+	}
+
+	apiSession, err := c.ApiClient.SessionRefresh(c.ServerKey, "", ApiSessionRefreshRequest{
+		Token: session.RefreshToken,
+		Vars:  vars,
+	}, make(map[string]string))
+
+	if err != nil {
+		return nil, err
+	}
+
+	session.Update(apiSession.Token, apiSession.RefreshToken)
+	return session, nil
 }
