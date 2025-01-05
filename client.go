@@ -636,14 +636,8 @@ func (c *Client) CreateGroup(session *Session, request ApiCreateGroupRequest) (*
 }
 
 // CreateSocket creates a socket using the client's configuration.
-func (c *Client) CreateSocket(useSSL bool, verbose bool, adapter WebSocketAdapter, sendTimeoutMs int) *Socket {
-	if adapter == nil {
-		adapter = NewWebSocketAdapterText() // Assuming there is a function NewWebSocketAdapterText.
-	}
-	if sendTimeoutMs == 0 {
-		sendTimeoutMs = DefaultSendTimeoutMs
-	}
-	return NewDefaultSocket(c.Host, c.Port, useSSL, verbose, adapter, sendTimeoutMs)
+func (c *Client) CreateSocket(useSSL bool, verbose bool, adapter *WebSocketAdapter, sendTimeoutMs *int) DefaultSocket {
+	return NewDefaultSocket(c.Host, c.Port, useSSL, verbose, *adapter, sendTimeoutMs)
 }
 
 // SessionRefresh refreshes a user's session using a refresh token retrieved from a previous authentication request.

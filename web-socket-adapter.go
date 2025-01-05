@@ -27,9 +27,9 @@ type WebSocketAdapter interface {
 // WebSocketAdapterText is a text-based WebSocket adapter for transmitting payloads over UTF-8.
 type WebSocketAdapterText struct {
 	socket    *websocket.Conn
-	onClose   func(event interface{})
+	onClose   func(event error)
 	onError   func(event error)
-	onMessage func(message interface{})
+	onMessage func(message []byte)
 	onOpen    func(event interface{})
 	mu        sync.Mutex // To guard websocket connection reference
 }
@@ -108,7 +108,7 @@ func (w *WebSocketAdapterText) Send(message interface{}) error {
 }
 
 // SetOnClose sets the handler for WebSocket close events.
-func (w *WebSocketAdapterText) SetOnClose(handler func(event interface{})) {
+func (w *WebSocketAdapterText) SetOnClose(handler func(event error)) {
 	w.onClose = handler
 }
 
@@ -118,7 +118,7 @@ func (w *WebSocketAdapterText) SetOnError(handler func(event error)) {
 }
 
 // SetOnMessage sets the handler for WebSocket message events.
-func (w *WebSocketAdapterText) SetOnMessage(handler func(message interface{})) {
+func (w *WebSocketAdapterText) SetOnMessage(handler func(message []byte)) {
 	w.onMessage = handler
 }
 
@@ -161,7 +161,12 @@ func (w *WebSocketAdapterText) listen() {
 		decodeReceivedData(decodedMessage, "party_data")
 
 		if w.onMessage != nil {
-			w.onMessage(decodedMessage)
+			messageBytes, err := json.Marshal(decodedMessage)
+			if err == nil {
+				w.onMessage(messageBytes)
+			} else if w.onError != nil {
+				w.onError(err)
+			}
 		}
 	}
 }

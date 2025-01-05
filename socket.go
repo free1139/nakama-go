@@ -376,14 +376,22 @@ type DefaultSocket struct {
 }
 
 // NewDefaultSocket creates an instance of DefaultSocket.
-func NewDefaultSocket(host, port string, useSSL, verbose bool, adapter WebSocketAdapter) *DefaultSocket {
-	return &DefaultSocket{
+func NewDefaultSocket(host, port string, useSSL, verbose bool, adapter WebSocketAdapter, sendTimeoutMs *int) DefaultSocket {
+	if adapter == nil {
+		adapter = NewWebSocketAdapterText()
+	}
+	if sendTimeoutMs == nil {
+		defaultTimeout := DefaultSendTimeoutMs
+		sendTimeoutMs = &defaultTimeout
+	}
+
+	return DefaultSocket{
 		Host:               host,
 		Port:               port,
 		UseSSL:             useSSL,
 		Verbose:            verbose,
 		Adapter:            adapter,
-		SendTimeoutMs:      DefaultSendTimeoutMs,
+		SendTimeoutMs:      *sendTimeoutMs,
 		HeartbeatTimeoutMs: DefaultHeartbeatTimeoutMs,
 		cIds:               make(map[string]*PromiseExecutor),
 		nextCid:            1,
