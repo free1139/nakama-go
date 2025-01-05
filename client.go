@@ -25,246 +25,246 @@ type RpcResponse struct {
 }
 
 type LeaderboardRecord struct {
-	CreateTime    *string
-	ExpiryTime    *string
-	LeaderboardID *string
-	Metadata      map[string]interface{}
-	NumScore      *int
-	OwnerID       *string
-	Rank          *int
-	Score         *int
-	SubScore      *int
-	UpdateTime    *string
-	Username      *string
-	MaxNumScore   *int
+	CreateTime    *string                `json:"create_time,omitempty"`
+	ExpiryTime    *string                `json:"expiry_time,omitempty"`
+	LeaderboardID *string                `json:"leaderboard_id,omitempty"`
+	Metadata      map[string]interface{} `json:"metadata,omitempty"`
+	NumScore      *int                   `json:"num_score,omitempty"`
+	OwnerID       *string                `json:"owner_id,omitempty"`
+	Rank          *int                   `json:"rank,omitempty"`
+	Score         *int                   `json:"score,omitempty"`
+	SubScore      *int                   `json:"subscore,omitempty"`
+	UpdateTime    *string                `json:"update_time,omitempty"`
+	Username      *string                `json:"username,omitempty"`
+	MaxNumScore   *int                   `json:"max_num_score,omitempty"`
 }
 
 type LeaderboardRecordList struct {
-	NextCursor   *string
-	OwnerRecords []LeaderboardRecord
-	PrevCursor   *string
-	RankCount    *int
-	Records      []LeaderboardRecord
+	NextCursor   *string             `json:"next_cursor,omitempty"`
+	OwnerRecords []LeaderboardRecord `json:"owner_records,omitempty"`
+	PrevCursor   *string             `json:"prev_cursor,omitempty"`
+	RankCount    *int                `json:"rank_count,omitempty"`
+	Records      []LeaderboardRecord `json:"records,omitempty"`
 }
 
 type Tournament struct {
-	Authoritative *bool
-	ID            *string
-	Title         *string
-	Description   *string
-	Duration      *int
-	Category      *int
-	SortOrder     *int
-	Size          *int
-	MaxSize       *int
-	MaxNumScore   *int
-	CanEnter      *bool
-	EndActive     *int
-	NextReset     *int
-	Metadata      map[string]interface{}
-	CreateTime    *string
-	StartTime     *string
-	EndTime       *string
-	StartActive   *int
+	Authoritative *bool                  `json:"authoritative,omitempty"`
+	ID            *string                `json:"id,omitempty"`
+	Title         *string                `json:"title,omitempty"`
+	Description   *string                `json:"description,omitempty"`
+	Duration      *int                   `json:"duration,omitempty"`
+	Category      *int                   `json:"category,omitempty"`
+	SortOrder     *int                   `json:"sort_order,omitempty"`
+	Size          *int                   `json:"size,omitempty"`
+	MaxSize       *int                   `json:"max_size,omitempty"`
+	MaxNumScore   *int                   `json:"max_num_score,omitempty"`
+	CanEnter      *bool                  `json:"can_enter,omitempty"`
+	EndActive     *int                   `json:"end_active,omitempty"`
+	NextReset     *int                   `json:"next_reset,omitempty"`
+	Metadata      map[string]interface{} `json:"metadata,omitempty"`
+	CreateTime    *string                `json:"create_time,omitempty"`
+	StartTime     *string                `json:"start_time,omitempty"`
+	EndTime       *string                `json:"end_time,omitempty"`
+	StartActive   *int                   `json:"start_active,omitempty"`
 }
 
 type TournamentList struct {
-	Tournaments []Tournament
-	Cursor      *string
+	Tournaments []Tournament `json:"tournaments,omitempty"`
+	Cursor      *string      `json:"cursor,omitempty"`
 }
 
 type TournamentRecordList struct {
-	NextCursor   *string
-	OwnerRecords []LeaderboardRecord
-	PrevCursor   *string
-	Records      []LeaderboardRecord
+	NextCursor   *string             `json:"next_cursor,omitempty"`
+	OwnerRecords []LeaderboardRecord `json:"owner_records,omitempty"`
+	PrevCursor   *string             `json:"prev_cursor,omitempty"`
+	Records      []LeaderboardRecord `json:"records,omitempty"`
 }
 
 type WriteTournamentRecord struct {
-	Metadata map[string]interface{}
-	Score    *string
-	SubScore *string
+	Metadata map[string]interface{} `json:"metadata,omitempty"`
+	Score    *string                `json:"score,omitempty"`
+	SubScore *string                `json:"subscore,omitempty"`
 }
 
 type WriteLeaderboardRecord struct {
-	Metadata map[string]interface{}
-	Score    *string
-	SubScore *string
+	Metadata map[string]interface{} `json:"metadata,omitempty"`
+	Score    *string                `json:"score,omitempty"`
+	SubScore *string                `json:"subscore,omitempty"`
 }
 
 type WriteStorageObject struct {
-	Collection      *string
-	Key             *string
-	PermissionRead  *int
-	PermissionWrite *int
-	Value           map[string]interface{}
-	Version         *string
+	Collection      *string                `json:"collection,omitempty"`
+	Key             *string                `json:"key,omitempty"`
+	PermissionRead  *int                   `json:"permission_read,omitempty"`
+	PermissionWrite *int                   `json:"permission_write,omitempty"`
+	Value           map[string]interface{} `json:"value,omitempty"`
+	Version         *string                `json:"version,omitempty"`
 }
 
 type StorageObject struct {
-	Collection      *string
-	CreateTime      *string
-	Key             *string
-	PermissionRead  *int
-	PermissionWrite *int
-	UpdateTime      *string
-	UserID          *string
-	Value           map[string]interface{}
-	Version         *string
+	Collection      *string                `json:"collection,omitempty"`
+	CreateTime      *string                `json:"create_time,omitempty"`
+	Key             *string                `json:"key,omitempty"`
+	PermissionRead  *int                   `json:"permission_read,omitempty"`
+	PermissionWrite *int                   `json:"permission_write,omitempty"`
+	UpdateTime      *string                `json:"update_time,omitempty"`
+	UserID          *string                `json:"user_id,omitempty"`
+	Value           map[string]interface{} `json:"value,omitempty"`
+	Version         *string                `json:"version,omitempty"`
 }
 
 type StorageObjectList struct {
-	Cursor  *string
-	Objects []StorageObject
+	Cursor  *string         `json:"cursor,omitempty"`
+	Objects []StorageObject `json:"objects"`
 }
 
 type StorageObjects struct {
-	Objects []StorageObject
+	Objects []StorageObject `json:"objects"`
 }
 
 type ChannelMessage struct {
-	ChannelID   *string
-	Code        *int
-	Content     map[string]interface{}
-	CreateTime  *string
-	GroupID     *string
-	MessageID   *string
-	Persistent  *bool
-	RoomName    *string
-	ReferenceID *string
-	SenderID    *string
-	UpdateTime  *string
-	UserIDOne   *string
-	UserIDTwo   *string
-	Username    *string
+	ChannelID   *string                `json:"channel_id,omitempty"`
+	Code        *int                   `json:"code,omitempty"`
+	Content     map[string]interface{} `json:"content,omitempty"`
+	CreateTime  *string                `json:"create_time,omitempty"`
+	GroupID     *string                `json:"group_id,omitempty"`
+	MessageID   *string                `json:"message_id,omitempty"`
+	Persistent  *bool                  `json:"persistent,omitempty"`
+	RoomName    *string                `json:"room_name,omitempty"`
+	ReferenceID *string                `json:"reference_id,omitempty"`
+	SenderID    *string                `json:"sender_id,omitempty"`
+	UpdateTime  *string                `json:"update_time,omitempty"`
+	UserIDOne   *string                `json:"user_id_one,omitempty"`
+	UserIDTwo   *string                `json:"user_id_two,omitempty"`
+	Username    *string                `json:"username,omitempty"`
 }
 
 type ChannelMessageList struct {
-	CacheableCursor *string
-	Messages        []ChannelMessage
-	NextCursor      *string
-	PrevCursor      *string
+	CacheableCursor *string          `json:"cacheable_cursor,omitempty"`
+	Messages        []ChannelMessage `json:"messages,omitempty"`
+	NextCursor      *string          `json:"next_cursor,omitempty"`
+	PrevCursor      *string          `json:"prev_cursor,omitempty"`
 }
 
 type User struct {
-	AvatarURL             *string
-	CreateTime            *string
-	DisplayName           *string
-	EdgeCount             *int
-	FacebookID            *string
-	FacebookInstantGameID *string
-	GamecenterID          *string
-	GoogleID              *string
-	ID                    *string
-	LangTag               *string
-	Location              *string
-	Metadata              map[string]interface{}
-	Online                *bool
-	SteamID               *string
-	Timezone              *string
-	UpdateTime            *string
-	Username              *string
+	AvatarURL             *string                `json:"avatar_url,omitempty"`
+	CreateTime            *string                `json:"create_time,omitempty"`
+	DisplayName           *string                `json:"display_name,omitempty"`
+	EdgeCount             *int                   `json:"edge_count,omitempty"`
+	FacebookID            *string                `json:"facebook_id,omitempty"`
+	FacebookInstantGameID *string                `json:"facebook_instant_game_id,omitempty"`
+	GamecenterID          *string                `json:"gamecenter_id,omitempty"`
+	GoogleID              *string                `json:"google_id,omitempty"`
+	ID                    *string                `json:"id,omitempty"`
+	LangTag               *string                `json:"lang_tag,omitempty"`
+	Location              *string                `json:"location,omitempty"`
+	Metadata              map[string]interface{} `json:"metadata,omitempty"`
+	Online                *bool                  `json:"online,omitempty"`
+	SteamID               *string                `json:"steam_id,omitempty"`
+	Timezone              *string                `json:"timezone,omitempty"`
+	UpdateTime            *string                `json:"update_time,omitempty"`
+	Username              *string                `json:"username,omitempty"`
 }
 
 type Users struct {
-	Users []User
+	Users []User `json:"users,omitempty"`
 }
 
 type Friend struct {
-	State *int
-	User  *User
+	State *int  `json:"state,omitempty"`
+	User  *User `json:"user,omitempty"`
 }
 
 type Friends struct {
-	Friends []Friend
-	Cursor  *string
+	Friends []Friend `json:"friends,omitempty"`
+	Cursor  *string  `json:"cursor,omitempty"`
 }
 
 type FriendOfFriend struct {
-	Referrer *string
-	User     *User
+	Referrer *string `json:"referrer,omitempty"`
+	User     *User   `json:"user,omitempty"`
 }
 
 type FriendsOfFriends struct {
-	Cursor           *string
-	FriendsOfFriends []FriendOfFriend
+	Cursor           *string          `json:"cursor,omitempty"`
+	FriendsOfFriends []FriendOfFriend `json:"friends_of_friends,omitempty"`
 }
 
 type GroupUser struct {
-	User  *User
-	State *int
+	User  *User `json:"user,omitempty"`
+	State *int  `json:"state,omitempty"`
 }
 
 type GroupUserList struct {
-	GroupUsers []GroupUser
-	Cursor     *string
+	GroupUsers []GroupUser `json:"group_users,omitempty"`
+	Cursor     *string     `json:"cursor,omitempty"`
 }
 
 type Group struct {
-	AvatarURL   *string
-	CreateTime  *string
-	CreatorID   *string
-	Description *string
-	EdgeCount   *int
-	ID          *string
-	LangTag     *string
-	MaxCount    *int
-	Metadata    map[string]interface{}
-	Name        *string
-	Open        *bool
-	UpdateTime  *string
+	AvatarURL   *string                `json:"avatar_url,omitempty"`
+	CreateTime  *string                `json:"create_time,omitempty"`
+	CreatorID   *string                `json:"creator_id,omitempty"`
+	Description *string                `json:"description,omitempty"`
+	EdgeCount   *int                   `json:"edge_count,omitempty"`
+	ID          *string                `json:"id,omitempty"`
+	LangTag     *string                `json:"lang_tag,omitempty"`
+	MaxCount    *int                   `json:"max_count,omitempty"`
+	Metadata    map[string]interface{} `json:"metadata,omitempty"`
+	Name        *string                `json:"name,omitempty"`
+	Open        *bool                  `json:"open,omitempty"`
+	UpdateTime  *string                `json:"update_time,omitempty"`
 }
 
 type GroupList struct {
-	Cursor *string
-	Groups []Group
+	Cursor *string `json:"cursor,omitempty"`
+	Groups []Group `json:"groups,omitempty"`
 }
 
 type UserGroup struct {
-	Group *Group
-	State *int
+	Group *Group `json:"group,omitempty"`
+	State *int   `json:"state,omitempty"`
 }
 
 type UserGroupList struct {
-	UserGroups []UserGroup
-	Cursor     *string
+	UserGroups []UserGroup `json:"user_groups,omitempty"`
+	Cursor     *string     `json:"cursor,omitempty"`
 }
 
 type Notification struct {
-	Code       *int
-	Content    map[string]interface{}
-	CreateTime *string
-	ID         *string
-	Persistent *bool
-	SenderID   *string
-	Subject    *string
+	Code       *int                   `json:"code,omitempty"`
+	Content    map[string]interface{} `json:"content,omitempty"`
+	CreateTime *string                `json:"create_time,omitempty"`
+	ID         *string                `json:"id,omitempty"`
+	Persistent *bool                  `json:"persistent,omitempty"`
+	SenderID   *string                `json:"sender_id,omitempty"`
+	Subject    *string                `json:"subject,omitempty"`
 }
 
 type NotificationList struct {
-	CacheableCursor *string
-	Notifications   []Notification
+	CacheableCursor *string        `json:"cacheable_cursor,omitempty"`
+	Notifications   []Notification `json:"notifications,omitempty"`
 }
 
 type ValidatedSubscription struct {
-	Active                *bool
-	CreateTime            *string
-	Environment           *string
-	ExpiryTime            *string
-	OriginalTransactionID *string
-	ProductID             *string
-	ProviderNotification  *string
-	ProviderResponse      *string
-	PurchaseTime          *string
-	RefundTime            *string
-	Store                 *string
-	UpdateTime            *string
-	UserID                *string
+	Active                *bool   `json:"active,omitempty"`
+	CreateTime            *string `json:"create_time,omitempty"`
+	Environment           *string `json:"environment,omitempty"`
+	ExpiryTime            *string `json:"expiry_time,omitempty"`
+	OriginalTransactionID *string `json:"original_transaction_id,omitempty"`
+	ProductID             *string `json:"product_id,omitempty"`
+	ProviderNotification  *string `json:"provider_notification,omitempty"`
+	ProviderResponse      *string `json:"provider_response,omitempty"`
+	PurchaseTime          *string `json:"purchase_time,omitempty"`
+	RefundTime            *string `json:"refund_time,omitempty"`
+	Store                 *string `json:"store,omitempty"`
+	UpdateTime            *string `json:"update_time,omitempty"`
+	UserID                *string `json:"user_id,omitempty"`
 }
 
 type SubscriptionList struct {
-	Cursor                 *string
-	PrevCursor             *string
-	ValidatedSubscriptions []ValidatedSubscription
+	Cursor                 *string                 `json:"cursor,omitempty"`
+	PrevCursor             *string                 `json:"prev_cursor,omitempty"`
+	ValidatedSubscriptions []ValidatedSubscription `json:"validated_subscriptions,omitempty"`
 }
 
 // Client represents a client for the Nakama server.
@@ -408,6 +408,51 @@ func (c *Client) AuthenticateDevice(id string, create *bool, username *string, v
 
 	// Call the API client to authenticate with a device ID
 	apiSession, err := c.ApiClient.AuthenticateDevice(c.ServerKey, "", request, create, username, make(map[string]string))
+	if err != nil {
+		return nil, err
+	}
+
+	// Return a new Session object
+	return &Session{
+		Token:        apiSession.Token,
+		RefreshToken: apiSession.RefreshToken,
+		Created:      apiSession.Created,
+	}, nil
+}
+
+// AuthenticateEmail authenticates a user with an email and password against the server.
+func (c *Client) AuthenticateEmail(email string, password string, create *bool, username *string, vars map[string]string) (*Session, error) {
+	// Prepare the authentication request
+	request := ApiAccountEmail{
+		Email:    email,
+		Password: password,
+		Vars:     vars,
+	}
+
+	// Call the API client to authenticate with email and password
+	apiSession, err := c.ApiClient.AuthenticateEmail(c.ServerKey, "", request, create, username, make(map[string]string))
+	if err != nil {
+		return nil, err
+	}
+
+	// Return a new Session object
+	return &Session{
+		Token:        apiSession.Token,
+		RefreshToken: apiSession.RefreshToken,
+		Created:      apiSession.Created,
+	}, nil
+}
+
+// AuthenticateFacebookInstantGame authenticates a user with a Facebook Instant Game token against the server.
+func (c *Client) AuthenticateFacebookInstantGame(signedPlayerInfo string, create *bool, username *string, vars map[string]string) (*Session, error) {
+	// Prepare the authentication request
+	request := ApiAccountFacebookInstantGame{
+		SignedPlayerInfo: signedPlayerInfo,
+		Vars:             vars,
+	}
+
+	// Call the API client to authenticate with Facebook Instant Game
+	apiSession, err := c.ApiClient.AuthenticateFacebookInstantGame(c.ServerKey, "", request, create, username, make(map[string]string))
 	if err != nil {
 		return nil, err
 	}

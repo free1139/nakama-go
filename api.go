@@ -18,507 +18,528 @@ import (
 type ApiOperator int
 
 const (
-	NoOverride ApiOperator = iota
-	Best
-	Set
-	Increment
-	Decrement
+	ApiOperatorNoOverride ApiOperator = iota
+	ApiOperatorBest
+	ApiOperatorSet
+	ApiOperatorIncrement
+	ApiOperatorDecrement
 )
 
 type ApiStoreEnvironment int
 
 const (
-	Unknown ApiStoreEnvironment = iota
-	Sandbox
-	Production
+	ApiStoreEnvironmentUnknown ApiStoreEnvironment = iota
+	ApiStoreEnvironmentSandbox
+	ApiStoreEnvironmentProduction
 )
 
 type ApiStoreProvider int
 
 const (
-	AppleAppStore ApiStoreProvider = iota
-	GooglePlayStore
-	HuaweiAppGallery
-	FacebookInstantStore
+	ApiStoreProviderAppleAppStore ApiStoreProvider = iota
+	ApiStoreProviderGooglePlayStore
+	ApiStoreProviderHuaweiAppGallery
+	ApiStoreProviderFacebookInstantStore
 )
 
+// A friend of a friend
 type FriendsOfFriendsListFriendOfFriend struct {
-	Referrer string   // The user who referred its friend.
-	User     *ApiUser // User.
+	Referrer *string  `json:"referrer,omitempty"`
+	User     *ApiUser `json:"user,omitempty"`
 }
 
+// A single user-role pair
 type GroupUserListGroupUser struct {
-	State int      // Their relationship to the group.
-	User  *ApiUser // User.
+	State *int     `json:"state,omitempty"`
+	User  *ApiUser `json:"user,omitempty"`
 }
 
+// A single group-role pair
 type UserGroupListUserGroup struct {
-	Group *ApiGroup // Group.
-	State int       // The user's relationship to the group.
+	Group *ApiGroup `json:"group,omitempty"`
+	State *int      `json:"state,omitempty"`
 }
 
+// Record values to write
 type WriteLeaderboardRecordRequestLeaderboardRecordWrite struct {
-	Metadata string      // Optional record metadata.
-	Operator ApiOperator // Operator override.
-	Score    string      // The score value to submit.
-	Subscore string      // An optional secondary value.
+	Metadata *string      `json:"metadata,omitempty"`
+	Operator *ApiOperator `json:"operator,omitempty"`
+	Score    *string      `json:"score,omitempty"`
+	Subscore *string      `json:"subscore,omitempty"`
 }
 
 type WriteTournamentRecordRequestTournamentRecordWrite struct {
-	Metadata string      // A JSON object of additional properties (optional).
-	Operator ApiOperator // Operator override.
-	Score    string      // The score value to submit.
-	Subscore string      // An optional secondary value.
+	Metadata *string      `json:"metadata,omitempty"`
+	Operator *ApiOperator `json:"operator,omitempty"`
+	Score    *string      `json:"score,omitempty"`
+	Subscore *string      `json:"subscore,omitempty"`
 }
 
+// A user with additional account details
 type ApiAccount struct {
-	CustomID    string             // The custom id in the user's account.
-	Devices     []ApiAccountDevice // The devices which belong to the user's account.
-	DisableTime string             // The time when the user's account was disabled/banned.
-	Email       string             // The email address of the user.
-	User        *ApiUser           // The user object.
-	VerifyTime  string             // The time when the user's email was verified.
-	Wallet      string             // The user's wallet data.
+	CustomID    *string            `json:"custom_id,omitempty"`
+	Devices     []ApiAccountDevice `json:"devices,omitempty"`
+	DisableTime *time.Time         `json:"disable_time,omitempty"`
+	Email       *string            `json:"email,omitempty"`
+	User        *ApiUser           `json:"user,omitempty"`
+	VerifyTime  *time.Time         `json:"verify_time,omitempty"`
+	Wallet      *string            `json:"wallet,omitempty"`
 }
 
 type ApiAccountApple struct {
-	Token string            // The ID token received from Apple to validate.
-	Vars  map[string]string // Extra information that will be bundled in the session token.
+	Token *string           `json:"token,omitempty"`
+	Vars  map[string]string `json:"vars,omitempty"`
 }
 
 type ApiAccountCustom struct {
-	ID   string            // A custom identifier.
-	Vars map[string]string // Extra information that will be bundled in the session token.
+	ID   *string           `json:"id,omitempty"`
+	Vars map[string]string `json:"vars,omitempty"`
 }
 
 type ApiAccountDevice struct {
-	ID   string            // A device identifier. Should be obtained by platform-specific device API.
-	Vars map[string]string // Extra information that will be bundled in the session token.
+	ID   *string           `json:"id,omitempty"`
+	Vars map[string]string `json:"vars,omitempty"`
 }
 
 type ApiAccountEmail struct {
-	Email    string            // A valid RFC-5322 email address.
-	Password string            // A password for the user account. Ignored with unlink operations.
-	Vars     map[string]string // Extra information that will be bundled in the session token.
+	Email    *string           `json:"email,omitempty"`
+	Password *string           `json:"password,omitempty"`
+	Vars     map[string]string `json:"vars,omitempty"`
 }
 
 type ApiAccountFacebook struct {
-	Token string            // The OAuth token from Facebook to access their profile API.
-	Vars  map[string]string // Extra information that will be bundled in the session token.
+	Token *string           `json:"token,omitempty"`
+	Vars  map[string]string `json:"vars,omitempty"`
 }
 
 type ApiAccountFacebookInstantGame struct {
-	SignedPlayerInfo string            // The signed player info from Facebook.
-	Vars             map[string]string // Extra information that will be bundled in the session token.
+	SignedPlayerInfo *string           `json:"signed_player_info,omitempty"`
+	Vars             map[string]string `json:"vars,omitempty"`
 }
 
 type ApiAccountGameCenter struct {
-	BundleID     string            // Bundle ID (generated by GameCenter).
-	PlayerID     string            // Player ID (generated by GameCenter).
-	PublicKeyURL string            // The URL for the public encryption key.
-	Salt         string            // A random "NSString" used to compute the hash and keep it randomized.
-	Signature    string            // The verification signature data generated.
-	Timestamp    string            // Time since UNIX epoch when the signature was created.
-	Vars         map[string]string // Extra information that will be bundled in the session token.
+	BundleID     *string           `json:"bundle_id,omitempty"`
+	PlayerID     *string           `json:"player_id,omitempty"`
+	PublicKeyURL *string           `json:"public_key_url,omitempty"`
+	Salt         *string           `json:"salt,omitempty"`
+	Signature    *string           `json:"signature,omitempty"`
+	Timestamp    *string           `json:"timestamp_seconds,omitempty"`
+	Vars         map[string]string `json:"vars,omitempty"`
 }
 
 type ApiAccountGoogle struct {
-	Token string            // The OAuth token received from Google to access their profile API.
-	Vars  map[string]string // Extra information that will be bundled in the session token.
+	Token *string           `json:"token,omitempty"`
+	Vars  map[string]string `json:"vars,omitempty"`
 }
 
 type ApiAccountSteam struct {
-	Token string            // The account token received from Steam to access their profile API.
-	Vars  map[string]string // Extra information that will be bundled in the session token.
+	Token *string           `json:"token,omitempty"`
+	Vars  map[string]string `json:"vars,omitempty"`
 }
 
 type ApiChannelMessage struct {
-	ChannelID  string // The channel this message belongs to.
-	Code       int    // The code representing a message type or category.
-	Content    string // The content payload.
-	CreateTime string // The time when the message was created.
-	GroupID    string // The ID of the group, or empty if not a group channel.
-	MessageID  string // The unique ID of this message.
-	Persistent bool   // True if the message was persisted to history; false otherwise.
-	RoomName   string // The name of the chat room, or empty if it was not a chat room.
-	SenderID   string // Message sender, usually a user ID.
-	UpdateTime string // The time when the message was last updated.
-	UserIDOne  string // The ID of the first DM user, or empty if it was not a DM chat.
-	UserIDTwo  string // The ID of the second DM user, or empty if it was not a DM chat.
-	Username   string // The username of the message sender, if any.
+	ChannelID  *string    `json:"channel_id,omitempty"`
+	Code       *int       `json:"code,omitempty"`
+	Content    *string    `json:"content,omitempty"`
+	CreateTime *time.Time `json:"create_time,omitempty"`
+	GroupID    *string    `json:"group_id,omitempty"`
+	MessageID  *string    `json:"message_id,omitempty"`
+	Persistent *bool      `json:"persistent,omitempty"`
+	RoomName   *string    `json:"room_name,omitempty"`
+	SenderID   *string    `json:"sender_id,omitempty"`
+	UpdateTime *time.Time `json:"update_time,omitempty"`
+	UserIDOne  *string    `json:"user_id_one,omitempty"`
+	UserIDTwo  *string    `json:"user_id_two,omitempty"`
+	Username   *string    `json:"username,omitempty"`
 }
 
 type ApiChannelMessageList struct {
-	CacheableCursor string              // Cacheable cursor to list newer messages. Durable and designed to be stored, unlike next/prev cursors.
-	Messages        []ApiChannelMessage // A list of messages.
-	NextCursor      string              // The cursor to send when retrieving the next page, if any.
-	PrevCursor      string              // The cursor to send when retrieving the previous page, if any.
+	CacheableCursor *string             `json:"cacheable_cursor,omitempty"`
+	Messages        []ApiChannelMessage `json:"messages,omitempty"`
+	NextCursor      *string             `json:"next_cursor,omitempty"`
+	PrevCursor      *string             `json:"prev_cursor,omitempty"`
 }
 
 type ApiCreateGroupRequest struct {
-	AvatarURL   string // A URL for an avatar image.
-	Description string // A description for the group.
-	LangTag     string // The language expected to be a tag which follows the BCP-47 spec.
-	MaxCount    int    // Maximum number of group members.
-	Name        string // A unique name for the group.
-	Open        bool   // Mark a group as open or not, where only admins can accept members.
+	AvatarURL   *string `json:"avatar_url,omitempty"`
+	Description *string `json:"description,omitempty"`
+	LangTag     *string `json:"lang_tag,omitempty"`
+	MaxCount    *int    `json:"max_count,omitempty"`
+	Name        *string `json:"name,omitempty"`
+	Open        *bool   `json:"open,omitempty"`
 }
 
 type ApiDeleteStorageObjectId struct {
-	Collection string // The collection which stores the object.
-	Key        string // The key of the object within the collection.
-	Version    string // The version hash of the object.
+	Collection *string `json:"collection,omitempty"`
+	Key        *string `json:"key,omitempty"`
+	Version    *string `json:"version,omitempty"`
 }
 
 type ApiDeleteStorageObjectsRequest struct {
-	ObjectIds []ApiDeleteStorageObjectId // Batch of storage objects.
+	ObjectIDs []ApiDeleteStorageObjectId `json:"object_ids,omitempty"`
 }
 
 type ApiEvent struct {
-	External   bool              // True if the event came directly from a client call, false otherwise.
-	Name       string            // An event name, type, category, or identifier.
-	Properties map[string]string // Arbitrary event property values.
-	Timestamp  string            // The time when the event was triggered.
+	External   *bool             `json:"external,omitempty"`
+	Name       *string           `json:"name,omitempty"`
+	Properties map[string]string `json:"properties,omitempty"`
+	Timestamp  *time.Time        `json:"timestamp,omitempty"`
 }
 
 type ApiFriend struct {
-	State      int      // The friend status. One of "Friend.State".
-	UpdateTime string   // Time of the latest relationship update.
-	User       *ApiUser // The user object.
+	State      *int       `json:"state,omitempty"`
+	UpdateTime *time.Time `json:"update_time,omitempty"`
+	User       *ApiUser   `json:"user,omitempty"`
 }
 
 type ApiFriendList struct {
-	Cursor  string      // Cursor for the next page of results, if any.
-	Friends []ApiFriend // The friend objects.
+	Cursor  *string     `json:"cursor,omitempty"`
+	Friends []ApiFriend `json:"friends,omitempty"`
 }
 
 type ApiFriendsOfFriendsList struct {
-	Cursor           string                               // Cursor for the next page of results, if any.
-	FriendsOfFriends []FriendsOfFriendsListFriendOfFriend // User friends of friends.
+	Cursor           *string                              `json:"cursor,omitempty"`
+	FriendsOfFriends []FriendsOfFriendsListFriendOfFriend `json:"friends_of_friends,omitempty"`
 }
 
 type ApiGroup struct {
-	AvatarURL   string // A URL for an avatar image.
-	CreateTime  string // The UNIX time when the group was created.
-	CreatorID   string // The ID of the user who created the group.
-	Description string // A description for the group.
-	EdgeCount   int    // The current count of all members in the group.
-	ID          string // The ID of the group.
-	LangTag     string // The language expected to be a tag which follows the BCP-47 spec.
-	MaxCount    int    // The maximum number of members allowed.
-	Metadata    string // Additional information, stored as a JSON object.
-	Name        string // The unique name of the group.
-	Open        bool   // Anyone can join open groups; otherwise, only admins can accept members.
-	UpdateTime  string // The UNIX time when the group was last updated.
+	AvatarURL   *string    `json:"avatar_url,omitempty"`
+	CreateTime  *time.Time `json:"create_time,omitempty"`
+	CreatorID   *string    `json:"creator_id,omitempty"`
+	Description *string    `json:"description,omitempty"`
+	EdgeCount   *int       `json:"edge_count,omitempty"`
+	ID          *string    `json:"id,omitempty"`
+	LangTag     *string    `json:"lang_tag,omitempty"`
+	MaxCount    *int       `json:"max_count,omitempty"`
+	Metadata    *string    `json:"metadata,omitempty"`
+	Name        *string    `json:"name,omitempty"`
+	Open        *bool      `json:"open,omitempty"`
+	UpdateTime  *time.Time `json:"update_time,omitempty"`
 }
 
 type ApiGroupList struct {
-	Cursor string     // A cursor used to get the next page.
-	Groups []ApiGroup // One or more groups.
+	Cursor *string    `json:"cursor,omitempty"`
+	Groups []ApiGroup `json:"groups,omitempty"`
 }
 
 type ApiGroupUserList struct {
-	Cursor     string                   // Cursor for the next page of results, if any.
-	GroupUsers []GroupUserListGroupUser // User-role pairs for a group.
+	Cursor     *string                  `json:"cursor,omitempty"`
+	GroupUsers []GroupUserListGroupUser `json:"group_users,omitempty"`
 }
 
 type ApiLeaderboardRecord struct {
-	CreateTime    string // The UNIX time when the leaderboard record was created.
-	ExpiryTime    string // The UNIX time when the leaderboard record expires.
-	LeaderboardID string // The ID of the leaderboard this score belongs to.
-	MaxNumScore   int    // The maximum number of score updates allowed by the owner.
-	Metadata      string // Metadata.
-	NumScore      int    // The number of submissions to this score record.
-	OwnerID       string // The ID of the score owner, usually a user or group.
-	Rank          string // The rank of this record.
-	Score         string // The score value.
-	Subscore      string // An optional subscore value.
-	UpdateTime    string // The UNIX time when the leaderboard record was updated.
-	Username      string // The username of the score owner, if the owner is a user.
+	CreateTime    *time.Time `json:"create_time,omitempty"`
+	ExpiryTime    *time.Time `json:"expiry_time,omitempty"`
+	LeaderboardID *string    `json:"leaderboard_id,omitempty"`
+	MaxNumScore   *int       `json:"max_num_score,omitempty"`
+	Metadata      *string    `json:"metadata,omitempty"`
+	NumScore      *int       `json:"num_score,omitempty"`
+	OwnerID       *string    `json:"owner_id,omitempty"`
+	Rank          *string    `json:"rank,omitempty"`
+	Score         *string    `json:"score,omitempty"`
+	Subscore      *string    `json:"subscore,omitempty"`
+	UpdateTime    *time.Time `json:"update_time,omitempty"`
+	Username      *string    `json:"username,omitempty"`
 }
 
 type ApiLeaderboardRecordList struct {
-	NextCursor   string                 // The cursor to send when retrieving the next page, if any.
-	OwnerRecords []ApiLeaderboardRecord // A batched set of leaderboard records belonging to specified owners.
-	PrevCursor   string                 // The cursor to send when retrieving the previous page, if any.
-	RankCount    string                 // The total number of ranks available.
-	Records      []ApiLeaderboardRecord // A list of leaderboard records.
+	NextCursor   *string                `json:"next_cursor,omitempty"`
+	OwnerRecords []ApiLeaderboardRecord `json:"owner_records,omitempty"`
+	PrevCursor   *string                `json:"prev_cursor,omitempty"`
+	RankCount    *string                `json:"rank_count,omitempty"`
+	Records      []ApiLeaderboardRecord `json:"records,omitempty"`
 }
 
 type ApiLinkSteamRequest struct {
-	Account *ApiAccountSteam // The Steam account details.
-	Sync    bool             // Import Steam friends for the user.
+	Account *ApiAccountSteam `json:"account,omitempty"`
+	Sync    *bool            `json:"sync,omitempty"`
 }
 
 type ApiListSubscriptionsRequest struct {
-	Cursor string // Cursor for paginated subscriptions, if any.
-	Limit  int    // Maximum number of subscriptions to retrieve (optional).
+	Cursor *string `json:"cursor,omitempty"`
+	Limit  *int    `json:"limit,omitempty"`
 }
 
 type ApiMatch struct {
-	Authoritative bool   // True if it's a server-managed authoritative match, false otherwise.
-	HandlerName   string // Handler name for the match, if any.
-	Label         string // Match label, if any.
-	MatchID       string // The ID of the match, used to join a match.
-	Size          int    // Current number of users in the match.
-	TickRate      int    // Tick rate of the match, if any.
+	Authoritative *bool   `json:"authoritative,omitempty"`
+	HandlerName   *string `json:"handler_name,omitempty"`
+	Label         *string `json:"label,omitempty"`
+	MatchID       *string `json:"match_id,omitempty"`
+	Size          *int    `json:"size,omitempty"`
+	TickRate      *int    `json:"tick_rate,omitempty"`
 }
 
 type ApiMatchList struct {
-	Matches []ApiMatch // A number of matches corresponding to a list operation.
+	Matches []ApiMatch `json:"matches,omitempty"`
 }
 
 type ApiNotification struct {
-	Code       int    // Category code for this notification.
-	Content    string // Content of the notification in JSON.
-	CreateTime string // The time when the notification was created.
-	ID         string // ID of the notification.
-	Persistent bool   // True if this notification was persisted to the database.
-	SenderID   string // ID of the sender, if a user; otherwise empty.
-	Subject    string // Subject of the notification.
+	Code       *int       `json:"code,omitempty"`
+	Content    *string    `json:"content,omitempty"`
+	CreateTime *time.Time `json:"create_time,omitempty"`
+	ID         *string    `json:"id,omitempty"`
+	Persistent *bool      `json:"persistent,omitempty"`
+	SenderID   *string    `json:"sender_id,omitempty"`
+	Subject    *string    `json:"subject,omitempty"`
 }
 
 type ApiNotificationList struct {
-	CacheableCursor string            // Cursor to paginate notifications.
-	Notifications   []ApiNotification // Collection of notifications.
+	CacheableCursor *string           `json:"cacheable_cursor,omitempty"`
+	Notifications   []ApiNotification `json:"notifications,omitempty"`
 }
 
 type ApiReadStorageObjectId struct {
-	Collection string // The collection which stores the object.
-	Key        string // The key of the object within the collection.
-	UserID     string // The user owner of the object.
+	Collection *string `json:"collection,omitempty"`
+	Key        *string `json:"key,omitempty"`
+	UserID     *string `json:"user_id,omitempty"`
 }
 
 type ApiReadStorageObjectsRequest struct {
-	ObjectIds []ApiReadStorageObjectId // Batch of storage objects.
+	ObjectIDs []ApiReadStorageObjectId `json:"object_ids,omitempty"`
 }
 
 type ApiRpc struct {
-	HTTPKey string // The authentication key used when executed as a non-client HTTP request.
-	ID      string // The identifier of the function.
-	Payload string // The payload of the function which must be a JSON object.
+	HttpKey *string `json:"http_key,omitempty"`
+	ID      *string `json:"id,omitempty"`
+	Payload *string `json:"payload,omitempty"`
 }
 
 type ApiSession struct {
-	Created      bool   // True if the corresponding account was just created, false otherwise.
-	RefreshToken string // Refresh token that can be used for session token renewal.
-	Token        string // Authentication credentials.
+	Created      *bool   `json:"created,omitempty"`
+	RefreshToken *string `json:"refresh_token,omitempty"`
+	Token        *string `json:"token,omitempty"`
 }
 
 type ApiSessionLogoutRequest struct {
-	RefreshToken string // Refresh token to invalidate.
-	Token        string // Session token to log out.
+	RefreshToken *string `json:"refresh_token,omitempty"`
+	Token        *string `json:"token,omitempty"`
 }
 
 type ApiSessionRefreshRequest struct {
-	Token string            // Refresh token.
-	Vars  map[string]string // Extra information that will be bundled in the session token.
+	Token *string           `json:"token,omitempty"`
+	Vars  map[string]string `json:"vars,omitempty"`
 }
 
 type ApiStorageObject struct {
-	Collection      string // The collection which stores the object.
-	CreateTime      string // The UNIX time when the object was created.
-	Key             string // The key of the object within the collection.
-	PermissionRead  int    // The read access permissions for the object.
-	PermissionWrite int    // The write access permissions for the object.
-	UpdateTime      string // The UNIX time when the object was last updated.
-	UserID          string // The user owner of the object.
-	Value           string // The value of the object.
-	Version         string // The version hash of the object.
+	Collection      *string    `json:"collection,omitempty"`
+	CreateTime      *time.Time `json:"create_time,omitempty"`
+	Key             *string    `json:"key,omitempty"`
+	PermissionRead  *int       `json:"permission_read,omitempty"`
+	PermissionWrite *int       `json:"permission_write,omitempty"`
+	UpdateTime      *time.Time `json:"update_time,omitempty"`
+	UserID          *string    `json:"user_id,omitempty"`
+	Value           *string    `json:"value,omitempty"`
+	Version         *string    `json:"version,omitempty"`
 }
 
 type ApiStorageObjectAck struct {
-	Collection string // The collection which stores the object.
-	CreateTime string // The UNIX time when the object was created.
-	Key        string // The key of the object within the collection.
-	UpdateTime string // The UNIX time when the object was last updated.
-	UserID     string // The owner of the object.
-	Version    string // The version hash of the object.
+	Collection *string    `json:"collection,omitempty"`
+	CreateTime *time.Time `json:"create_time,omitempty"`
+	Key        *string    `json:"key,omitempty"`
+	UpdateTime *time.Time `json:"update_time,omitempty"`
+	UserID     *string    `json:"user_id,omitempty"`
+	Version    *string    `json:"version,omitempty"`
 }
 
 type ApiStorageObjectAcks struct {
-	Acks []ApiStorageObjectAck // Batch of storage write acknowledgements.
+	Acks []ApiStorageObjectAck `json:"acks,omitempty"`
 }
 
 type ApiStorageObjectList struct {
-	Cursor  string             // The cursor for the next page of results, if any.
-	Objects []ApiStorageObject // The list of storage objects.
+	Cursor  *string            `json:"cursor,omitempty"`
+	Objects []ApiStorageObject `json:"objects,omitempty"`
 }
 
 type ApiStorageObjects struct {
-	Objects []ApiStorageObject // The batch of storage objects.
+	Objects []ApiStorageObject `json:"objects,omitempty"`
 }
 
 type ApiSubscriptionList struct {
-	Cursor                 string                     // The cursor to send when retrieving the next page, if any.
-	PrevCursor             string                     // The cursor to send when retrieving the previous page, if any.
-	ValidatedSubscriptions []ApiValidatedSubscription // Stored validated subscriptions.
+	Cursor                 *string                    `json:"cursor,omitempty"`
+	PrevCursor             *string                    `json:"prev_cursor,omitempty"`
+	ValidatedSubscriptions []ApiValidatedSubscription `json:"validated_subscriptions,omitempty"`
 }
 
 type ApiTournament struct {
-	Authoritative bool        // Whether the leaderboard was created authoritatively or not.
-	CanEnter      bool        // True if the tournament is active and can enter. A computed value.
-	Category      int         // The category of the tournament. e.g. "vip" could be category 1.
-	CreateTime    string      // The UNIX time when the tournament was created.
-	Description   string      // The description of the tournament. May be blank.
-	Duration      int         // Duration of the tournament in seconds.
-	EndActive     int         // The UNIX time when the tournament stops being active until the next reset.
-	EndTime       string      // The UNIX time when the tournament will be stopped.
-	ID            string      // The ID of the tournament.
-	MaxNumScore   int         // The maximum score updates allowed per player for the current tournament.
-	MaxSize       int         // The maximum number of players for the tournament.
-	Metadata      string      // Additional information stored as a JSON object.
-	NextReset     int         // The UNIX time when the tournament is next playable.
-	Operator      ApiOperator // Operator.
-	PrevReset     int         // The UNIX time when the tournament was last reset.
-	Size          int         // The current number of players in the tournament.
-	SortOrder     int         // ASC (0) or DESC (1) sort mode of scores in the tournament.
-	StartActive   int         // The UNIX time when the tournament starts being active.
-	StartTime     string      // The UNIX time when the tournament will start.
-	Title         string      // The title of the tournament.
+	Authoritative *bool        `json:"authoritative,omitempty"`
+	CanEnter      *bool        `json:"can_enter,omitempty"`
+	Category      *int         `json:"category,omitempty"`
+	CreateTime    *time.Time   `json:"create_time,omitempty"`
+	Description   *string      `json:"description,omitempty"`
+	Duration      *int         `json:"duration,omitempty"`
+	EndActive     *int64       `json:"end_active,omitempty"`
+	EndTime       *time.Time   `json:"end_time,omitempty"`
+	ID            *string      `json:"id,omitempty"`
+	MaxNumScore   *int         `json:"max_num_score,omitempty"`
+	MaxSize       *int         `json:"max_size,omitempty"`
+	Metadata      *string      `json:"metadata,omitempty"`
+	NextReset     *int64       `json:"next_reset,omitempty"`
+	Operator      *ApiOperator `json:"operator,omitempty"`
+	PrevReset     *int64       `json:"prev_reset,omitempty"`
+	Size          *int         `json:"size,omitempty"`
+	SortOrder     *int         `json:"sort_order,omitempty"`
+	StartActive   *int64       `json:"start_active,omitempty"`
+	StartTime     *time.Time   `json:"start_time,omitempty"`
+	Title         *string      `json:"title,omitempty"`
 }
 
 type ApiTournamentList struct {
-	Cursor      string          // A pagination cursor (optional).
-	Tournaments []ApiTournament // The list of tournaments returned.
+	Cursor      *string         `json:"cursor,omitempty"`
+	Tournaments []ApiTournament `json:"tournaments,omitempty"`
 }
 
 type ApiTournamentRecordList struct {
-	NextCursor   string                 // The cursor to send when retrieving the next page.
-	OwnerRecords []ApiLeaderboardRecord // A batched set of tournament records belonging to specified owners.
-	PrevCursor   string                 // The cursor to send when retrieving the previous page.
-	RankCount    string                 // The total number of ranks available.
-	Records      []ApiLeaderboardRecord // A list of tournament records.
+	NextCursor   *string                `json:"next_cursor,omitempty"`
+	OwnerRecords []ApiLeaderboardRecord `json:"owner_records,omitempty"`
+	PrevCursor   *string                `json:"prev_cursor,omitempty"`
+	RankCount    *string                `json:"rank_count,omitempty"`
+	Records      []ApiLeaderboardRecord `json:"records,omitempty"`
 }
 
 type ApiUpdateAccountRequest struct {
-	AvatarURL   string // A URL for an avatar image.
-	DisplayName string // The display name of the user.
-	LangTag     string // The language expected to be a tag that follows the BCP-47 spec.
-	Location    string // The location set by the user.
-	Timezone    string // The timezone set by the user.
-	Username    string // The username of the user's account.
+	AvatarURL   *string `json:"avatar_url,omitempty"`
+	DisplayName *string `json:"display_name,omitempty"`
+	LangTag     *string `json:"lang_tag,omitempty"`
+	Location    *string `json:"location,omitempty"`
+	Timezone    *string `json:"timezone,omitempty"`
+	Username    *string `json:"username,omitempty"`
 }
 
 type ApiUpdateGroupRequest struct {
-	AvatarURL   string // Avatar URL.
-	Description string // Description string.
-	GroupID     string // The ID of the group to update.
-	LangTag     string // Language tag.
-	Name        string // Name.
-	Open        bool   // True if anyone can join, false otherwise only admins can approve members.
+	AvatarURL   *string `json:"avatar_url,omitempty"`
+	Description *string `json:"description,omitempty"`
+	GroupID     *string `json:"group_id,omitempty"`
+	LangTag     *string `json:"lang_tag,omitempty"`
+	Name        *string `json:"name,omitempty"`
+	Open        *bool   `json:"open,omitempty"`
 }
 
 type ApiUser struct {
-	AppleID               string // The Apple Sign-In ID in the user's account.
-	AvatarURL             string // A URL for an avatar image.
-	CreateTime            string // The UNIX time when the user was created.
-	DisplayName           string // The display name of the user.
-	EdgeCount             int    // Number of related edges to this user.
-	FacebookID            string // The Facebook ID in the user's account.
-	FacebookInstantGameID string // The Facebook Instant Game ID in the user's account.
-	GameCenterID          string // The Apple Game Center ID in the user's account.
-	GoogleID              string // The Google ID in the user's account.
-	ID                    string // The ID of the user's account.
-	LangTag               string // The language expected to be a tag that follows the BCP-47 spec.
-	Location              string // The location set by the user.
-	Metadata              string // Additional information stored as a JSON object.
-	Online                bool   // Indicates whether the user is currently online.
-	SteamID               string // The Steam ID in the user's account.
-	Timezone              string // The timezone set by the user.
-	UpdateTime            string // The UNIX time when the user was last updated.
-	Username              string // The username of the user's account.
+	AppleID               *string    `json:"apple_id,omitempty"`
+	AvatarURL             *string    `json:"avatar_url,omitempty"`
+	CreateTime            *time.Time `json:"create_time,omitempty"`
+	DisplayName           *string    `json:"display_name,omitempty"`
+	EdgeCount             *int       `json:"edge_count,omitempty"`
+	FacebookID            *string    `json:"facebook_id,omitempty"`
+	FacebookInstantGameID *string    `json:"facebook_instant_game_id,omitempty"`
+	GamecenterID          *string    `json:"gamecenter_id,omitempty"`
+	GoogleID              *string    `json:"google_id,omitempty"`
+	ID                    *string    `json:"id,omitempty"`
+	LangTag               *string    `json:"lang_tag,omitempty"`
+	Location              *string    `json:"location,omitempty"`
+	Metadata              *string    `json:"metadata,omitempty"`
+	Online                *bool      `json:"online,omitempty"`
+	SteamID               *string    `json:"steam_id,omitempty"`
+	Timezone              *string    `json:"timezone,omitempty"`
+	UpdateTime            *time.Time `json:"update_time,omitempty"`
+	Username              *string    `json:"username,omitempty"`
 }
 
+// ApiUserGroupList A list of groups belonging to a user, along with the user's role in each group.
 type ApiUserGroupList struct {
-	Cursor     string                   // Cursor for the next page of results, if any.
-	UserGroups []UserGroupListUserGroup // Group-role pairs for a user.
+	// Cursor for the next page of results, if any.
+	Cursor     *string                   `json:"cursor,omitempty"`
+	UserGroups *[]UserGroupListUserGroup `json:"user_groups,omitempty"`
 }
 
+// ApiUsers A collection of zero or more users.
 type ApiUsers struct {
-	Users []ApiUser // The list of user objects.
+	// The User objects.
+	Users *[]ApiUser `json:"users,omitempty"`
 }
 
+// ApiValidatePurchaseAppleRequest Request to validate an Apple in-app purchase.
 type ApiValidatePurchaseAppleRequest struct {
-	Persist bool   // True to persist the validated purchase.
-	Receipt string // Base64 encoded Apple receipt data payload.
+	Persist *bool   `json:"persist,omitempty"`
+	Receipt *string `json:"receipt,omitempty"` // Base64 encoded Apple receipt data payload.
 }
 
+// ApiValidatePurchaseFacebookInstantRequest Request to validate a Facebook Instant in-app purchase.
 type ApiValidatePurchaseFacebookInstantRequest struct {
-	Persist       bool   // True to persist the validated purchase.
-	SignedRequest string // Base64 encoded Facebook Instant signedRequest receipt data payload.
+	Persist       *bool   `json:"persist,omitempty"`
+	SignedRequest *string `json:"signed_request,omitempty"` // Base64 encoded Facebook Instant signedRequest receipt data payload.
 }
 
+// ApiValidatePurchaseGoogleRequest Request to validate a Google Play Store in-app purchase.
 type ApiValidatePurchaseGoogleRequest struct {
-	Persist  bool   // True to persist the validated purchase.
-	Purchase string // JSON encoded Google purchase payload.
+	Persist  *bool   `json:"persist,omitempty"`
+	Purchase *string `json:"purchase,omitempty"` // JSON encoded Google purchase payload.
 }
 
+// ApiValidatePurchaseHuaweiRequest Request to validate a Huawei AppGallery in-app purchase.
 type ApiValidatePurchaseHuaweiRequest struct {
-	Persist   bool   // True to persist the validated purchase.
-	Purchase  string // JSON encoded Huawei InAppPurchaseData.
-	Signature string // InAppPurchaseData signature.
+	Persist   *bool   `json:"persist,omitempty"`
+	Purchase  *string `json:"purchase,omitempty"`  // JSON encoded Huawei InAppPurchaseData.
+	Signature *string `json:"signature,omitempty"` // InAppPurchaseData signature.
 }
 
+// ApiValidatePurchaseResponse Response for validated in-app purchases.
 type ApiValidatePurchaseResponse struct {
-	ValidatedPurchases []ApiValidatedPurchase // Newly seen validated purchases.
+	ValidatedPurchases *[]ApiValidatedPurchase `json:"validated_purchases,omitempty"`
 }
 
+// ApiValidateSubscriptionAppleRequest Request to validate an Apple subscription.
 type ApiValidateSubscriptionAppleRequest struct {
-	Persist bool   // True to persist the subscription.
-	Receipt string // Base64 encoded Apple receipt data payload.
+	Persist *bool   `json:"persist,omitempty"` // Persist the subscription.
+	Receipt *string `json:"receipt,omitempty"` // Base64 encoded Apple receipt data payload.
 }
 
+// ApiValidateSubscriptionGoogleRequest Request to validate a Google Play subscription.
 type ApiValidateSubscriptionGoogleRequest struct {
-	Persist bool   // True to persist the subscription.
-	Receipt string // JSON encoded Google purchase payload.
+	Persist *bool   `json:"persist,omitempty"` // Persist the subscription.
+	Receipt *string `json:"receipt,omitempty"` // JSON encoded Google purchase payload.
 }
 
+// ApiValidateSubscriptionResponse Response for validated subscriptions.
 type ApiValidateSubscriptionResponse struct {
-	ValidatedSubscription *ApiValidatedSubscription // The validated subscription.
+	ValidatedSubscription *ApiValidatedSubscription `json:"validated_subscription,omitempty"`
 }
 
+// ApiValidatedPurchase Validated Purchase stored by the backend system.
 type ApiValidatedPurchase struct {
-	CreateTime       string              // The time when the receipt validation was stored in the DB.
-	Environment      ApiStoreEnvironment // Whether the purchase was done in production or sandbox environment.
-	ProductID        string              // Purchase product ID.
-	ProviderResponse string              // Raw provider validation response.
-	PurchaseTime     string              // The time when the purchase was made.
-	RefundTime       string              // The time when the purchase was refunded, if applicable.
-	SeenBefore       bool                // True if the purchase was already validated.
-	Store            ApiStoreProvider    // The store where the purchase was made.
-	TransactionID    string              // The transaction ID for the purchase.
-	UpdateTime       string              // The time when the receipt validation was last updated in the DB.
-	UserID           string              // The ID of the user who made the purchase.
+	CreateTime       *string              `json:"create_time,omitempty"`       // Timestamp when the receipt validation was stored in DB.
+	Environment      *ApiStoreEnvironment `json:"environment,omitempty"`       // Whether the purchase was done in production or sandbox environment.
+	ProductID        *string              `json:"product_id,omitempty"`        // Purchase Product ID.
+	ProviderResponse *string              `json:"provider_response,omitempty"` // Raw provider validation response.
+	PurchaseTime     *string              `json:"purchase_time,omitempty"`     // Timestamp when the purchase was done.
+	RefundTime       *string              `json:"refund_time,omitempty"`
+	SeenBefore       *bool                `json:"seen_before,omitempty"` // Whether the purchase had already been validated before.
+	Store            *ApiStoreProvider    `json:"store,omitempty"`
+	TransactionID    *string              `json:"transaction_id,omitempty"` // Purchase Transaction ID.
+	UpdateTime       *string              `json:"update_time,omitempty"`    // Timestamp when the receipt validation was updated.
+	UserID           *string              `json:"user_id,omitempty"`        // Purchase User ID.
 }
 
+// ApiValidatedSubscription Validated Subscription stored by the backend system.
 type ApiValidatedSubscription struct {
-	Active                bool                // Whether the subscription is currently active or not.
-	CreateTime            string              // The time when the receipt validation was stored in the DB.
-	Environment           ApiStoreEnvironment // The environment in which the subscription was made.
-	ExpiryTime            string              // The expiration time of the subscription.
-	OriginalTransactionID string              // The original transaction ID for the subscription.
-	ProductID             string              // Subscription product ID.
-	ProviderNotification  string              // The raw provider notification body.
-	ProviderResponse      string              // The raw provider validation response body.
-	PurchaseTime          string              // The time when the subscription was purchased.
-	RefundTime            string              // The time when the subscription was refunded, if applicable.
-	Store                 ApiStoreProvider    // The store where the subscription was made.
-	UpdateTime            string              // The time when the receipt validation was updated in the DB.
-	UserID                string              // The user ID for the subscription.
+	Active                *bool                `json:"active,omitempty"`                  // Whether the subscription is currently active or not.
+	CreateTime            *string              `json:"create_time,omitempty"`             // UNIX Timestamp when the receipt validation was stored in DB.
+	Environment           *ApiStoreEnvironment `json:"environment,omitempty"`             // Whether the purchase was done in production or sandbox environment.
+	ExpiryTime            *string              `json:"expiry_time,omitempty"`             // Subscription expiration time.
+	OriginalTransactionID *string              `json:"original_transaction_id,omitempty"` // Purchase Original transaction ID.
+	ProductID             *string              `json:"product_id,omitempty"`              // Purchase Product ID.
+	ProviderNotification  *string              `json:"provider_notification,omitempty"`   // Raw provider notification body.
+	ProviderResponse      *string              `json:"provider_response,omitempty"`       // Raw provider validation response body.
+	PurchaseTime          *string              `json:"purchase_time,omitempty"`           // UNIX Timestamp when the purchase was done.
+	RefundTime            *string              `json:"refund_time,omitempty"`             // Subscription refund time.
+	Store                 *ApiStoreProvider    `json:"store,omitempty"`
+	UpdateTime            *string              `json:"update_time,omitempty"` // UNIX Timestamp when the receipt validation was updated.
+	UserID                *string              `json:"user_id,omitempty"`     // Subscription User ID.
 }
 
+// ApiWriteStorageObject The object to store in the database or storage engine.
 type ApiWriteStorageObject struct {
-	Collection      string // The collection to store the object.
-	Key             string // The key for the object within the collection.
-	PermissionRead  int    // The read access permissions for the object.
-	PermissionWrite int    // The write access permissions for the object.
-	Value           string // The value of the object.
-	Version         string // The version hash of the object to check.
+	Collection      *string `json:"collection,omitempty"`       // The collection to store the object.
+	Key             *string `json:"key,omitempty"`              // The key for the object within the collection.
+	PermissionRead  *int    `json:"permission_read,omitempty"`  // Read access permissions for the object.
+	PermissionWrite *int    `json:"permission_write,omitempty"` // Write access permissions for the object.
+	Value           *string `json:"value,omitempty"`            // The value of the object.
+	Version         *string `json:"version,omitempty"`          // Version hash for optimistic concurrency control.
 }
 
+// ApiWriteStorageObjectsRequest Request to write objects to the storage engine.
 type ApiWriteStorageObjectsRequest struct {
-	Objects []ApiWriteStorageObject // The objects to store on the server.
+	Objects *[]ApiWriteStorageObject `json:"objects,omitempty"` // The objects to store on the server.
 }
 
 type NakamaApi struct {
@@ -1103,7 +1124,7 @@ func (api *NakamaApi) AuthenticateEmail(
 	create *bool,
 	username *string,
 	options map[string]string,
-) (any, error) {
+) (*ApiSession, error) {
 	// Define the URL path and query parameters
 	urlPath := "/v2/account/authenticate/email"
 	queryParams := url.Values{}
@@ -1173,7 +1194,7 @@ func (api *NakamaApi) AuthenticateEmail(
 		if resp.StatusCode == http.StatusNoContent {
 			return nil, nil
 		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			var result any
+			var result *ApiSession
 			bodyBytes, err := io.ReadAll(resp.Body)
 			if err != nil {
 				return nil, err
