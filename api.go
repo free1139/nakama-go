@@ -135,6 +135,7 @@ type ApiAccountGoogle struct {
 type ApiAccountSteam struct {
 	Token *string           `json:"token,omitempty"`
 	Vars  map[string]string `json:"vars,omitempty"`
+	Sync  *bool             `json:"sync,omitempty"`
 }
 
 type ApiChannelMessage struct {
@@ -1219,7 +1220,7 @@ func (api *NakamaApi) AuthenticateFacebook(
 	username *string,
 	sync *bool,
 	options map[string]string,
-) (any, error) {
+) (*ApiSession, error) {
 	// Define the URL path and query parameters
 	urlPath := "/v2/account/authenticate/facebook"
 	queryParams := url.Values{}
@@ -1292,7 +1293,7 @@ func (api *NakamaApi) AuthenticateFacebook(
 		if resp.StatusCode == http.StatusNoContent {
 			return nil, nil
 		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			var result any
+			var result *ApiSession
 			bodyBytes, err := io.ReadAll(resp.Body)
 			if err != nil {
 				return nil, err
@@ -1410,7 +1411,7 @@ func (api *NakamaApi) AuthenticateGameCenter(
 	create *bool,
 	username *string,
 	options map[string]string,
-) (any, error) {
+) (*ApiSession, error) {
 	// Define the URL path and query parameters
 	urlPath := "/v2/account/authenticate/gamecenter"
 	queryParams := url.Values{}
@@ -1480,7 +1481,7 @@ func (api *NakamaApi) AuthenticateGameCenter(
 		if resp.StatusCode == http.StatusNoContent {
 			return nil, nil
 		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			var result any
+			var result *ApiSession
 			bodyBytes, err := io.ReadAll(resp.Body)
 			if err != nil {
 				return nil, err
@@ -1504,7 +1505,7 @@ func (api *NakamaApi) AuthenticateGoogle(
 	create *bool,
 	username *string,
 	options map[string]string,
-) (any, error) {
+) (*ApiSession, error) {
 	// Define the URL path and query parameters
 	urlPath := "/v2/account/authenticate/google"
 	queryParams := url.Values{}
@@ -1574,7 +1575,7 @@ func (api *NakamaApi) AuthenticateGoogle(
 		if resp.StatusCode == http.StatusNoContent {
 			return nil, nil
 		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			var result any
+			var result *ApiSession
 			bodyBytes, err := io.ReadAll(resp.Body)
 			if err != nil {
 				return nil, err
@@ -1599,7 +1600,7 @@ func (api *NakamaApi) AuthenticateSteam(
 	username *string,
 	sync *bool,
 	options map[string]string,
-) (any, error) {
+) (*ApiSession, error) {
 	// Define the URL path and query parameters
 	urlPath := "/v2/account/authenticate/steam"
 	queryParams := url.Values{}
@@ -1672,7 +1673,7 @@ func (api *NakamaApi) AuthenticateSteam(
 		if resp.StatusCode == http.StatusNoContent {
 			return nil, nil
 		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			var result any
+			var result *ApiSession
 			bodyBytes, err := io.ReadAll(resp.Body)
 			if err != nil {
 				return nil, err

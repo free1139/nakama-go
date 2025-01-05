@@ -324,7 +324,7 @@ func NewClient(
 func (c *Client) AddGroupUsers(session *Session, groupId string, ids []string) (bool, error) {
 	if c.AutoRefreshSession && session.RefreshToken != "" &&
 		session.IsExpired((time.Now().UnixMilli()+c.ExpiredTimespanMs)/1000) {
-		if _, err := c.RefreshSession(session, nil); err != nil {
+		if _, err := c.SessionRefresh(session, nil); err != nil {
 			return false, err
 		}
 	}
@@ -341,7 +341,7 @@ func (c *Client) AddGroupUsers(session *Session, groupId string, ids []string) (
 func (c *Client) AddFriends(session *Session, ids []string, usernames []string) (bool, error) {
 	if c.AutoRefreshSession && session.RefreshToken != "" &&
 		session.IsExpired((time.Now().UnixMilli()+c.ExpiredTimespanMs)/1000) {
-		if _, err := c.RefreshSession(session, nil); err != nil {
+		if _, err := c.SessionRefresh(session, nil); err != nil {
 			return false, err
 		}
 	}
@@ -465,8 +465,121 @@ func (c *Client) AuthenticateFacebookInstantGame(signedPlayerInfo string, create
 	}, nil
 }
 
-// RefreshSession refreshes a user's session using a refresh token retrieved from a previous authentication request.
-func (c *Client) RefreshSession(session *Session, vars map[string]string) (*Session, error) {
+// AuthenticateFacebook authenticates a user with a Facebook OAuth token against the server.
+func (c *Client) AuthenticateFacebook(token string, create *bool, username *string, sync *bool, vars map[string]string, options map[string]string) (*Session, error) {
+	// Prepare the authentication request
+	request := ApiAccountFacebook{
+		Token: &token,
+		Vars:  vars,
+	}
+
+	// Call the API client to authenticate with Facebook
+	apiSession, err := c.ApiClient.AuthenticateFacebook(c.ServerKey, "", request, create, username, sync, options)
+	if err != nil {
+		return nil, err
+	}
+
+	// Return a new Session object
+	return &Session{
+		Token:        *apiSession.Token,
+		RefreshToken: *apiSession.RefreshToken,
+		Created:      *apiSession.Created,
+	}, nil
+}
+
+// AuthenticateGoogle authenticates a user with a Google token against the server.
+func (c *Client) AuthenticateGoogle(token string, create *bool, username *string, vars map[string]string, options map[string]string) (*Session, error) {
+	// Prepare the authentication request
+	request := ApiAccountGoogle{
+		Token: &token,
+		Vars:  vars,
+	}
+
+	// Call the API client to authenticate with Google
+	apiSession, err := c.ApiClient.AuthenticateGoogle(c.ServerKey, "", request, create, username, options)
+	if err != nil {
+		return nil, err
+	}
+
+	// Return a new Session object
+	return &Session{
+		Token:        *apiSession.Token,
+		RefreshToken: *apiSession.RefreshToken,
+		Created:      *apiSession.Created,
+	}, nil
+}
+
+// AuthenticateGameCenter authenticates a user with GameCenter against the server.
+func (c *Client) AuthenticateGameCenter(bundleId string, playerId string, publicKeyUrl string, salt string, signature string, timestamp string, create *bool, username *string, vars map[string]string, options map[string]string) (*Session, error) {
+	// Prepare the authentication request
+	request := ApiAccountGameCenter{
+		BundleID:     &bundleId,
+		PlayerID:     &playerId,
+		PublicKeyURL: &publicKeyUrl,
+		Salt:         &salt,
+		Signature:    &signature,
+		Timestamp:    &timestamp,
+		Vars:         vars,
+	}
+
+	// Call the API client to authenticate with GameCenter
+	apiSession, err := c.ApiClient.AuthenticateGameCenter(c.ServerKey, "", request, create, username, options)
+	if err != nil {
+		return nil, err
+	}
+
+	// Return a new Session object
+	return &Session{
+		Token:        *apiSession.Token,
+		RefreshToken: *apiSession.RefreshToken,
+		Created:      *apiSession.Created,
+	}, nil
+}
+
+// AuthenticateSteam authenticates a user with a Steam token against the server.
+func (c *Client) AuthenticateSteam(token string, create *bool, username *string, sync *bool, vars map[string]string) (*Session, error) {
+	// Prepare the authentication request
+	request := ApiAccountSteam{
+		Token: &token,
+		Vars:  vars,
+		Sync:  sync,
+	}
+
+	// Call the API client to authenticate with Steam
+	apiSession, err := c.ApiClient.AuthenticateSteam(c.ServerKey, "", request, create, username, nil, make(map[string]string))
+
+	if err != nil {
+		return nil, err
+	}
+
+	// Return a new Session object
+	return &Session{
+		Token:        *apiSession.Token,
+		RefreshToken: *apiSession.RefreshToken,
+		Created:      *apiSession.Created,
+	}, nil
+}
+
+// BanGroupUsers bans users from a group.
+func (c *Client) BanGroupUsers(session *Session, groupId string, ids []string) (bool, error) {
+	if c.AutoRefreshSession && session.RefreshToken != "" &&
+		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
+		_, err := c.SessionRefresh(session, nil)
+		if err != nil {
+			return false, err
+		}
+	}
+
+	response, err := c.ApiClient.BanGroupUsers(session.Token, groupId, ids, make(map[string]string))
+	if err != nil {
+		return false, err
+	}
+
+	return response != nil, nil
+}
+
+// SessionRefresh refreshes a user's session using a refresh token retrieved from a previous authentication request.
+func (c *Client) SessionRefresh(session *Session, vars map[string]string) (*Session, error) {
 	if session == nil {
 		return nil, fmt.Errorf("cannot refresh a null session")
 	}
