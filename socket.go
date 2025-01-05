@@ -9,7 +9,7 @@ import (
 
 type PromiseExecutor struct {
 	Resolve func(value interface{})
-	Reject  func(reason interface{})
+	Reject  func(reason error)
 }
 
 type Presence struct {
@@ -38,22 +38,6 @@ type ChannelLeave struct {
 	ChannelLeave struct {
 		ChannelID string `json:"channel_id"`
 	} `json:"channel_leave"`
-}
-
-type ChannelMessage struct {
-	ChannelID  string      `json:"channel_id"`
-	MessageID  string      `json:"message_id"`
-	Code       int         `json:"code"`
-	SenderID   string      `json:"sender_id"`
-	Username   string      `json:"username"`
-	Content    interface{} `json:"content"`
-	CreateTime string      `json:"create_time"`
-	UpdateTime string      `json:"update_time"`
-	Persistent bool        `json:"persistent"`
-	GroupID    string      `json:"group_id"`
-	RoomName   string      `json:"room_name"`
-	UserIDOne  string      `json:"user_id_one"`
-	UserIDTwo  string      `json:"user_id_two"`
 }
 
 type ChannelMessageAck struct {
@@ -352,18 +336,6 @@ type StatusUpdate struct {
 	} `json:"status_update"`
 }
 
-type Presence struct {
-	UserID    string `json:"user_id"`
-	SessionID string `json:"session_id"`
-	Username  string `json:"username"`
-	Node      string `json:"node"`
-}
-
-type ApiRpc struct {
-	ID      string      `json:"id"`
-	Payload interface{} `json:"payload"`
-}
-
 // Socket defines the Go struct with corresponding methods.
 type Socket struct {
 	OnDisconnect       func(evt error)                `json:"-"`
@@ -441,13 +413,13 @@ func (socket *DefaultSocket) Connect(session Session, createStatus bool, timeout
 		return nil, err
 	}
 
-	socket.Adapter.OnClose(func(evt error) {
+	socket.Adapter.SetOnClose(func(evt error) {
 		socket.OnDisconnect(evt)
 	})
-	socket.Adapter.OnError(func(evt error) {
+	socket.Adapter.SetOnError(func(evt error) {
 		socket.OnError(evt)
 	})
-	socket.Adapter.OnMessage(func(message []byte) {
+	socket.Adapter.SetOnMessage(func(message []byte) {
 		socket.HandleMessage(message)
 	})
 
@@ -571,7 +543,7 @@ func (socket *DefaultSocket) Send(message interface{}, sendTimeout int) error {
 	return nil
 }
 
-// Example methods for handling specific socket calls
+// CreateParty Example methods for handling specific socket calls
 func (socket *DefaultSocket) CreateParty(open bool, maxSize int) (*Party, error) {
 	request := map[string]interface{}{
 		"party_create": map[string]interface{}{

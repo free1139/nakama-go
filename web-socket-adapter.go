@@ -18,9 +18,9 @@ type WebSocketAdapter interface {
 	Send(message interface{}) error
 
 	// Event handlers
-	SetOnClose(handler func(event interface{}))
+	SetOnClose(handler func(evt error))
 	SetOnError(handler func(event error))
-	SetOnMessage(handler func(message interface{}))
+	SetOnMessage(handler func(message []byte))
 	SetOnOpen(handler func(event interface{}))
 }
 
