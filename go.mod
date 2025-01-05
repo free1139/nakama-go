@@ -1,4 +1,4 @@
-module nakama-go
+module github.com/NorthNorthGames/nakama-go
 
 go 1.23
 

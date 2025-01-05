@@ -286,8 +286,8 @@ func NewClient(
 	host string,
 	port string,
 	useSSL bool,
-	timeout int,
-	autoRefreshSession bool,
+	timeout *int,
+	autoRefreshSession *bool,
 ) *Client {
 	// Default values if not provided
 	if serverKey == "" {
@@ -299,8 +299,13 @@ func NewClient(
 	if port == "" {
 		port = DefaultPort
 	}
-	if timeout == 0 {
-		timeout = DefaultTimeoutMs
+	if timeout == nil {
+		timeout = new(int)
+		*timeout = DefaultTimeoutMs
+	}
+	if autoRefreshSession == nil {
+		autoRefreshSession = new(bool)
+		*autoRefreshSession = true
 	}
 
 	scheme := "http://"
@@ -311,13 +316,13 @@ func NewClient(
 
 	return &Client{
 		ExpiredTimespanMs:  DefaultExpiredTimespanMs,
-		ApiClient:          &NakamaApi{serverKey, basePath, timeout},
+		ApiClient:          &NakamaApi{serverKey, basePath, *timeout},
 		ServerKey:          serverKey,
 		Host:               host,
 		Port:               port,
 		UseSSL:             useSSL,
-		Timeout:            timeout,
-		AutoRefreshSession: autoRefreshSession,
+		Timeout:            *timeout,
+		AutoRefreshSession: *autoRefreshSession,
 	}
 }
 

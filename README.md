@@ -12,3 +12,62 @@ but have a look at the [server documentation](https://github.com/heroiclabs/naka
 
 1. Install and run the servers. Follow
    these [instructions](https://heroiclabs.com/docs/nakama/getting-started/install/docker/).
+
+2. Import the client into your project.
+   It's [available on pkg.go.dev](https://pkg.go.dev/github.com/NorthNorthGames/nakama-go)
+
+   ```shell
+   go get https://pkg.go.dev/github.com/NorthNorthGames/nakama-go
+   ```
+
+3. Use the connection credentials to build a client object.
+
+   ```go
+   package main
+
+   import "github.com/NorthNorthGames/nakama-go"
+   
+   func main() {
+	   useSsl := false // Enable if server is run with an SSL certificate
+	   client := NewClient("defaultKey", "127.0.0.1", "7350", useSsl, nil, nil)
+   }
+   ```
+
+## Usage
+
+The client object has many methods to execute various features in the server or open realtime socket connections with
+the server.
+
+### Authenticate
+
+```go
+email := "super@heroes.com"
+password := "batsignal"
+session, error := client.AuthenticateEmail(email, password, nil, nil, nil)
+
+if error != nil {
+	log.Fatalf("Failed to authenticate email: %v", error)
+}
+log.Printf("Authenticated successfully. Session Token: %v", *session)
+```
+
+### Sessions
+
+When authenticated the server responds with an auth token (JWT) which contains useful properties and gets deserialized
+into a `Session` struct.
+
+```go
+log.Print(session.Token)
+log.Print(session.RefreshToken)
+log.Print(session.UserID)
+log.Print(session.Username)
+log.Printf("Session has expired? %t", session.IsExpired(time.Now().UnixMilli()/1000))
+expiresAt := session.ExpiresAt
+var expiresAtTime time.Time
+if expiresAt != nil {
+	expiresAtTime = time.UnixMilli(*expiresAt)
+	log.Printf("Session will expire at: %s", expiresAtTime.Format(time.RFC3339))
+} else {
+	log.Print("Expiration time is not set.")
+}
+```
