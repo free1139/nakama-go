@@ -1,6 +1,7 @@
 package nakama
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"time"
@@ -576,6 +577,73 @@ func (c *Client) BanGroupUsers(session *Session, groupId string, ids []string) (
 	}
 
 	return response != nil, nil
+}
+
+// BlockFriends blocks one or more users by ID or username.
+func (c *Client) BlockFriends(session *Session, ids []string, usernames []string) (bool, error) {
+	if c.AutoRefreshSession && session.RefreshToken != "" &&
+		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
+		_, err := c.SessionRefresh(session, nil)
+		if err != nil {
+			return false, err
+		}
+	}
+
+	response, err := c.ApiClient.BlockFriends(session.Token, ids, usernames, make(map[string]string))
+	if err != nil {
+		return false, err
+	}
+
+	return response != nil, nil
+}
+
+// CreateGroup creates a new group with the current user as the creator and superadmin.
+func (c *Client) CreateGroup(session *Session, request ApiCreateGroupRequest) (*Group, error) {
+	// Check if the session requires refresh
+	if c.AutoRefreshSession && session.RefreshToken != "" &&
+		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
+		_, err := c.SessionRefresh(session, nil)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// Call the API client to create the group
+	apiGroup, err := c.ApiClient.CreateGroup(session.Token, request, make(map[string]string))
+	if err != nil {
+		return nil, err
+	}
+
+	// Map the response to the Group struct
+	return &Group{
+		AvatarURL:   apiGroup.AvatarURL,
+		CreateTime:  timeToStringPointer(*apiGroup.CreateTime, time.RFC3339),
+		CreatorID:   apiGroup.CreatorID,
+		Description: apiGroup.Description,
+		EdgeCount:   apiGroup.EdgeCount,
+		ID:          apiGroup.ID,
+		LangTag:     apiGroup.LangTag,
+		MaxCount:    apiGroup.MaxCount,
+		Metadata: func() map[string]interface{} {
+			var metadata map[string]interface{}
+			json.Unmarshal([]byte(*apiGroup.Metadata), &metadata)
+			return metadata
+		}(),
+		Name:       apiGroup.Name,
+		Open:       apiGroup.Open,
+		UpdateTime: timeToStringPointer(*apiGroup.UpdateTime, time.RFC3339),
+	}, nil
+}
+
+// CreateSocket creates a socket using the client's configuration.
+func (c *Client) CreateSocket(useSSL bool, verbose bool, adapter WebSocketAdapter, sendTimeoutMs int) *Socket {
+	if adapter == nil {
+		adapter = NewWebSocketAdapterText() // Assuming there is a function NewWebSocketAdapterText.
+	}
+	if sendTimeoutMs == 0 {
+		sendTimeoutMs = DefaultSocket.DefaultSendTimeoutMs
+	}
+	return NewDefaultSocket(c.Host, c.Port, useSSL, verbose, adapter, sendTimeoutMs)
 }
 
 // SessionRefresh refreshes a user's session using a refresh token retrieved from a previous authentication request.

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/url"
 	"reflect"
+	"time"
 )
 
 // BuildFetchOptions constructs fetch options similar to the JavaScript version.
@@ -75,4 +76,10 @@ func B64DecodeUnicode(str string) (string, error) {
 	}
 
 	return decoded, nil
+}
+
+// Helper function to convert time.Time to *string
+func timeToStringPointer(t time.Time, layout string) *string {
+	formattedTime := t.Format(layout)
+	return &formattedTime
 }
