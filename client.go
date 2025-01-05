@@ -771,6 +771,42 @@ func (c *Client) DemoteGroupUsers(session *Session, groupId string, ids []string
 	return response != nil, nil
 }
 
+// EmitEvent submits an event for processing in the server's registered runtime custom events handler.
+func (c *Client) EmitEvent(session *Session, request ApiEvent) (bool, error) {
+	if c.AutoRefreshSession && session.RefreshToken != "" &&
+		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
+		_, err := c.SessionRefresh(session, nil)
+		if err != nil {
+			return false, err
+		}
+	}
+
+	response, err := c.ApiClient.Event(session.Token, request, make(map[string]string))
+	if err != nil {
+		return false, err
+	}
+
+	return response != nil, nil
+}
+
+// GetAccount fetches the current user's account.
+func (c *Client) GetAccount(session *Session) (*ApiAccount, error) {
+	if c.AutoRefreshSession && session.RefreshToken != "" &&
+		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
+		_, err := c.SessionRefresh(session, nil)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	account, err := c.ApiClient.GetAccount(session.Token, make(map[string]string))
+	if err != nil {
+		return nil, err
+	}
+
+	return account, nil
+}
+
 // SessionRefresh refreshes a user's session using a refresh token retrieved from a previous authentication request.
 func (c *Client) SessionRefresh(session *Session, vars map[string]string) (*Session, error) {
 	if session == nil {

@@ -46,7 +46,7 @@ password := "batsignal"
 session, error := client.AuthenticateEmail(email, password, nil, nil, nil)
 
 if error != nil {
-	log.Fatalf("Failed to authenticate email: %v", error)
+log.Fatalf("Failed to authenticate email: %v", error)
 }
 log.Printf("Authenticated successfully. Session Token: %v", *session)
 ```
@@ -65,9 +65,55 @@ log.Printf("Session has expired? %t", session.IsExpired(time.Now().UnixMilli()/1
 expiresAt := session.ExpiresAt
 var expiresAtTime time.Time
 if expiresAt != nil {
-	expiresAtTime = time.UnixMilli(*expiresAt)
-	log.Printf("Session will expire at: %s", expiresAtTime.Format(time.RFC3339))
+expiresAtTime = time.UnixMilli(*expiresAt)
+log.Printf("Session will expire at: %s", expiresAtTime.Format(time.RFC3339))
 } else {
-	log.Print("Expiration time is not set.")
+log.Print("Expiration time is not set.")
 }
 ```
+
+It is recommended to store the auth token from the session and check at startup if it has expired. If the token has
+expired you must reauthenticate. The expiry time of the token can be changed as a setting in the server.
+
+```go
+session := Restore(authToken, refreshToken)
+
+// Check whether a session is close to expiry
+
+unixTimeInFuture := time.Now().Add(24 * time.Hour).UnixMilli()
+
+if session.IsExpired(unixTimeInFuture / 1000) {
+session, error = client.SessionRefresh(session, make(map[string]string))
+
+if error != nil {
+log.Print("Session can no longer be refreshed. Must reauthenticate!")
+}
+}
+```
+
+### Requests
+
+The client includes lots of builtin APIs for various features of the game server. These can be accessed with the methods
+which return Promise objects. It can also call custom logic as RPC functions on the server. These can also be executed
+with a socket object.
+
+All requests are sent with a session object which authorizes the client.
+
+```go
+account, error := client.GetAccount(session)
+if account == nil {
+log.Fatalf("Failed to get account: %v", error)
+}
+if error != nil {
+log.Fatalf("Failed to get account: %v", error)
+}
+log.Print(account.User.ID)
+log.Print(account.User.Username)
+log.Print(account.Wallet)
+```
+
+### Socket
+
+The client can create one or more sockets with the server. Each socket can have its own event listeners registered for
+responses received from the server.
+

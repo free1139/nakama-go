@@ -690,7 +690,7 @@ func (api *NakamaApi) DeleteAccount(bearerToken string, options map[string]strin
 }
 
 // GetAccount fetches the current user's account.
-func (api *NakamaApi) GetAccount(bearerToken string, options map[string]string) (any, error) {
+func (api *NakamaApi) GetAccount(bearerToken string, options map[string]string) (*ApiAccount, error) {
 	// Define the URL path and query parameters
 	urlPath := "/v2/account"
 	queryParams := url.Values{}
