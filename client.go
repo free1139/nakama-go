@@ -640,6 +640,132 @@ func (c *Client) CreateSocket(useSSL bool, verbose bool, adapter *WebSocketAdapt
 	return NewDefaultSocket(c.Host, c.Port, useSSL, verbose, *adapter, sendTimeoutMs)
 }
 
+// DeleteAccount deletes the current user's account.
+func (c *Client) DeleteAccount(session *Session) (bool, error) {
+	if c.AutoRefreshSession && session.RefreshToken != "" &&
+		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
+		_, err := c.SessionRefresh(session, nil)
+		if err != nil {
+			return false, err
+		}
+	}
+
+	response, err := c.ApiClient.DeleteAccount(session.Token, make(map[string]string))
+	if err != nil {
+		return false, err
+	}
+
+	return response != nil, nil
+}
+
+// DeleteFriends deletes one or more users by ID or username.
+func (c *Client) DeleteFriends(session *Session, ids []string, usernames []string) (bool, error) {
+	if c.AutoRefreshSession && session.RefreshToken != "" &&
+		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
+		_, err := c.SessionRefresh(session, nil)
+		if err != nil {
+			return false, err
+		}
+	}
+
+	response, err := c.ApiClient.DeleteFriends(session.Token, ids, usernames, make(map[string]string))
+	if err != nil {
+		return false, err
+	}
+
+	return response != nil, nil
+}
+
+// DeleteGroup deletes a group the user is part of and has permissions to delete.
+func (c *Client) DeleteGroup(session *Session, groupId string) (bool, error) {
+	if c.AutoRefreshSession && session.RefreshToken != "" &&
+		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
+		_, err := c.SessionRefresh(session, nil)
+		if err != nil {
+			return false, err
+		}
+	}
+
+	response, err := c.ApiClient.DeleteGroup(session.Token, groupId, make(map[string]string))
+	if err != nil {
+		return false, err
+	}
+
+	return response != nil, nil
+}
+
+// DeleteNotifications deletes one or more notifications.
+func (c *Client) DeleteNotifications(session *Session, ids []string) (bool, error) {
+	if c.AutoRefreshSession && session.RefreshToken != "" &&
+		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
+		_, err := c.SessionRefresh(session, nil)
+		if err != nil {
+			return false, err
+		}
+	}
+
+	response, err := c.ApiClient.DeleteNotifications(session.Token, ids, make(map[string]string))
+	if err != nil {
+		return false, err
+	}
+
+	return response != nil, nil
+}
+
+// DeleteStorageObjects deletes one or more storage objects.
+func (c *Client) DeleteStorageObjects(session *Session, request ApiDeleteStorageObjectsRequest) (bool, error) {
+	if c.AutoRefreshSession && session.RefreshToken != "" &&
+		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
+		_, err := c.SessionRefresh(session, nil)
+		if err != nil {
+			return false, err
+		}
+	}
+
+	response, err := c.ApiClient.DeleteStorageObjects(session.Token, request, make(map[string]string))
+	if err != nil {
+		return false, err
+	}
+
+	return response != nil, nil
+}
+
+// DeleteTournamentRecord deletes a tournament record.
+func (c *Client) DeleteTournamentRecord(session *Session, tournamentId string) (bool, error) {
+	if c.AutoRefreshSession && session.RefreshToken != "" &&
+		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
+		_, err := c.SessionRefresh(session, nil)
+		if err != nil {
+			return false, err
+		}
+	}
+
+	response, err := c.ApiClient.DeleteTournamentRecord(session.Token, tournamentId, make(map[string]string))
+	if err != nil {
+		return false, err
+	}
+
+	return response != nil, nil
+}
+
+// DemoteGroupUsers demotes a set of users in a group to the next role down.
+func (c *Client) DemoteGroupUsers(session *Session, groupId string, ids []string) (bool, error) {
+	if c.AutoRefreshSession && session.RefreshToken != "" &&
+		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
+		_, err := c.SessionRefresh(session, nil)
+		if err != nil {
+			return false, err
+		}
+	}
+
+	response, err := c.ApiClient.DemoteGroupUsers(session.Token, groupId, ids, make(map[string]string))
+	if err != nil {
+		return false, err
+	}
+
+	return response != nil, nil
+}
+
 // SessionRefresh refreshes a user's session using a refresh token retrieved from a previous authentication request.
 func (c *Client) SessionRefresh(session *Session, vars map[string]string) (*Session, error) {
 	if session == nil {

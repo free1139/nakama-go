@@ -6857,7 +6857,7 @@ func (api *NakamaApi) DeleteStorageObjects(
 	bearerToken string,
 	body ApiDeleteStorageObjectsRequest,
 	options map[string]string,
-) error {
+) (any, error) {
 	// Define the URL path
 	urlPath := "/v2/storage/delete"
 
@@ -6867,7 +6867,7 @@ func (api *NakamaApi) DeleteStorageObjects(
 	// Convert the body to JSON
 	bodyJson, err := json.Marshal(body)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// Construct the full URL
@@ -6876,7 +6876,7 @@ func (api *NakamaApi) DeleteStorageObjects(
 	// Prepare the HTTP request
 	req, err := http.NewRequest("PUT", fullUrl, strings.NewReader(string(bodyJson)))
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// Set Bearer Token authorization header if provided
@@ -6910,20 +6910,28 @@ func (api *NakamaApi) DeleteStorageObjects(
 	// Wait for the response or the timeout
 	select {
 	case <-ctx.Done():
-		return errors.New("request timed out")
+		return nil, errors.New("request timed out")
 	case err := <-errorChan:
-		return err
+		return nil, err
 	case resp := <-responseChan:
 		defer resp.Body.Close()
 
 		// Handle HTTP response
 		if resp.StatusCode == http.StatusNoContent {
-			return nil
+			bodyBytes, err := io.ReadAll(resp.Body)
+			if err != nil {
+				return nil, err
+			}
+			return bodyBytes, nil
 		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			return nil
+			bodyBytes, err := io.ReadAll(resp.Body)
+			if err != nil {
+				return nil, err
+			}
+			return bodyBytes, nil
 		} else {
 			bodyBytes, _ := io.ReadAll(resp.Body)
-			return fmt.Errorf("unexpected response: %s", string(bodyBytes))
+			return nil, fmt.Errorf("unexpected response: %s", string(bodyBytes))
 		}
 	}
 }
@@ -7238,10 +7246,10 @@ func (api *NakamaApi) DeleteTournamentRecord(
 	bearerToken string,
 	tournamentId string,
 	options map[string]string,
-) error {
+) (any, error) {
 	// Validate the tournamentId
 	if tournamentId == "" {
-		return errors.New("'tournamentId' is a required parameter but is empty.")
+		return nil, errors.New("'tournamentId' is a required parameter but is empty.")
 	}
 
 	// Define the URL path
@@ -7259,7 +7267,7 @@ func (api *NakamaApi) DeleteTournamentRecord(
 	// Prepare the HTTP request
 	req, err := http.NewRequest("DELETE", fullUrl, strings.NewReader(bodyJson))
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// Set Bearer Token authorization header if provided
@@ -7280,21 +7288,29 @@ func (api *NakamaApi) DeleteTournamentRecord(
 	client := &http.Client{}
 	resp, err := client.Do(req.WithContext(ctx))
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer resp.Body.Close()
 
 	// Check the HTTP status code
 	if resp.StatusCode == http.StatusNoContent {
 		// Success with no content
-		return nil
+		bodyBytes, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return nil, err
+		}
+		return bodyBytes, nil
 	} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		// Success with content, consume body (optional)
-		return nil
+		bodyBytes, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return nil, err
+		}
+		return bodyBytes, nil
 	} else {
 		// Handle error response
 		bodyBytes, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("unexpected response: %s", string(bodyBytes))
+		return nil, fmt.Errorf("unexpected response: %s", string(bodyBytes))
 	}
 }
 
