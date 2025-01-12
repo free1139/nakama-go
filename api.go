@@ -743,7 +743,7 @@ func (api *NakamaApi) GetAccount(bearerToken string, options map[string]string) 
 		if resp.StatusCode == http.StatusNoContent {
 			return nil, nil
 		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			var result any
+			var result *ApiAccount
 			bodyBytes, err := io.ReadAll(resp.Body)
 			if err != nil {
 				return nil, err

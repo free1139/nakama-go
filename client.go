@@ -807,6 +807,238 @@ func (c *Client) GetAccount(session *Session) (*ApiAccount, error) {
 	return account, nil
 }
 
+// GetSubscription fetches a subscription by product ID.
+func (c *Client) GetSubscription(session *Session, productId string) (*ApiValidatedSubscription, error) {
+	if c.AutoRefreshSession && session.RefreshToken != "" &&
+		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
+		_, err := c.SessionRefresh(session, nil)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	subscription, err := c.ApiClient.GetSubscription(session.Token, productId, make(map[string]string))
+	if err != nil {
+		return nil, err
+	}
+	return &subscription, nil
+}
+
+// ImportFacebookFriends imports Facebook friends and adds them to a user's account.
+func (c *Client) ImportFacebookFriends(session *Session, request ApiAccountFacebook) (bool, error) {
+	if c.AutoRefreshSession && session.RefreshToken != "" &&
+		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
+		_, err := c.SessionRefresh(session, nil)
+		if err != nil {
+			return false, err
+		}
+	}
+
+	response, err := c.ApiClient.ImportFacebookFriends(session.Token, request, false, make(map[string]string))
+	if err != nil {
+		return false, err
+	}
+
+	return response != nil, nil
+}
+
+// ImportSteamFriends imports Steam friends and adds them to a user's account.
+func (c *Client) ImportSteamFriends(session *Session, request ApiAccountSteam, reset bool) (bool, error) {
+	if c.AutoRefreshSession && session.RefreshToken != "" &&
+		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
+		_, err := c.SessionRefresh(session, nil)
+		if err != nil {
+			return false, err
+		}
+	}
+
+	response, err := c.ApiClient.ImportSteamFriends(session.Token, request, reset, make(map[string]string))
+	if err != nil {
+		return false, err
+	}
+
+	return response != nil, nil
+}
+
+// FetchUsers fetches zero or more users by ID and/or username.
+func (c *Client) FetchUsers(session *Session, ids []string, usernames []string, facebookIds []string) (*Users, error) {
+	if c.AutoRefreshSession && session.RefreshToken != "" &&
+		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
+		_, err := c.SessionRefresh(session, nil)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	apiResponse, err := c.ApiClient.GetUsers(session.Token, ids, usernames, facebookIds, make(map[string]string))
+	if err != nil {
+		return nil, err
+	}
+
+	result := &Users{
+		Users: []User{},
+	}
+
+	if apiResponse.Users == nil {
+		return result, nil
+	}
+
+	for _, u := range *apiResponse.Users {
+		user := User{
+			AvatarURL:    u.AvatarURL,
+			CreateTime:   timeToStringPointer(*u.CreateTime, time.RFC3339),
+			DisplayName:  u.DisplayName,
+			EdgeCount:    u.EdgeCount,
+			FacebookID:   u.FacebookID,
+			GamecenterID: u.GamecenterID,
+			GoogleID:     u.GoogleID,
+			ID:           u.ID,
+			LangTag:      u.LangTag,
+			Location:     u.Location,
+			Online:       u.Online,
+			SteamID:      u.SteamID,
+			Timezone:     u.Timezone,
+			UpdateTime:   timeToStringPointer(*u.UpdateTime, time.RFC3339),
+			Username:     u.Username,
+			Metadata:     nil,
+		}
+		if u.Metadata != nil {
+			if err := json.Unmarshal([]byte(*u.Metadata), &user.Metadata); err != nil {
+				return nil, err
+			}
+		}
+		result.Users = append(result.Users, user)
+	}
+
+	return result, nil
+}
+
+// JoinGroup either joins a group that's open or sends a request to join a group that's closed.
+func (c *Client) JoinGroup(session *Session, groupId string) (bool, error) {
+	if c.AutoRefreshSession && session.RefreshToken != "" &&
+		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
+		_, err := c.SessionRefresh(session, nil)
+		if err != nil {
+			return false, err
+		}
+	}
+
+	response, err := c.ApiClient.JoinGroup(session.Token, groupId, make(map[string]string))
+	if err != nil {
+		return false, err
+	}
+
+	return response != nil, nil
+}
+
+// JoinTournament allows a user to join a tournament by its ID.
+func (c *Client) JoinTournament(session *Session, tournamentId string) (bool, error) {
+	if c.AutoRefreshSession && session.RefreshToken != "" &&
+		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
+		_, err := c.SessionRefresh(session, nil)
+		if err != nil {
+			return false, err
+		}
+	}
+
+	response, err := c.ApiClient.JoinTournament(session.Token, tournamentId, make(map[string]string))
+	if err != nil {
+		return false, err
+	}
+
+	return response != nil, nil
+}
+
+// KickGroupUsers kicks users from a group or declines their join requests.
+func (c *Client) KickGroupUsers(session *Session, groupId string, ids []string) (bool, error) {
+	if c.AutoRefreshSession && session.RefreshToken != "" &&
+		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
+		_, err := c.SessionRefresh(session, nil)
+		if err != nil {
+			return false, err
+		}
+	}
+
+	response, err := c.ApiClient.KickGroupUsers(session.Token, groupId, ids, make(map[string]string))
+	if err != nil {
+		return false, err
+	}
+
+	return response != nil, nil
+}
+
+// LeaveGroup allows a user to leave a group they are part of.
+func (c *Client) LeaveGroup(session *Session, groupId string) (bool, error) {
+	if c.AutoRefreshSession && session.RefreshToken != "" &&
+		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
+		_, err := c.SessionRefresh(session, nil)
+		if err != nil {
+			return false, err
+		}
+	}
+
+	response, err := c.ApiClient.LeaveGroup(session.Token, groupId, make(map[string]string))
+	if err != nil {
+		return false, err
+	}
+
+	return response != nil, nil
+}
+
+// ListChannelMessages retrieves a channel's message history.
+func (c *Client) ListChannelMessages(session *Session, channelId string, limit *int, forward *bool, cursor *string) (*ChannelMessageList, error) {
+	if c.AutoRefreshSession && session.RefreshToken != "" &&
+		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
+		_, err := c.SessionRefresh(session, nil)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	apiResponse, err := c.ApiClient.ListChannelMessages(session.Token, channelId, limit, forward, cursor, make(map[string]string))
+	if err != nil {
+		return nil, err
+	}
+
+	result := &ChannelMessageList{
+		Messages:        []ChannelMessage{},
+		NextCursor:      apiResponse.NextCursor,
+		PrevCursor:      apiResponse.PrevCursor,
+		CacheableCursor: apiResponse.CacheableCursor,
+	}
+
+	if apiResponse.Messages == nil {
+		return result, nil
+	}
+
+	for _, m := range apiResponse.Messages {
+		message := ChannelMessage{
+			ChannelID:  m.ChannelID,
+			Code:       m.Code,
+			CreateTime: timeToStringPointer(*m.CreateTime, time.RFC3339),
+			MessageID:  m.MessageID,
+			Persistent: m.Persistent,
+			SenderID:   m.SenderID,
+			UpdateTime: timeToStringPointer(*m.UpdateTime, time.RFC3339),
+			Username:   m.Username,
+			Content:    nil,
+			GroupID:    m.GroupID,
+			RoomName:   m.RoomName,
+			UserIDOne:  m.UserIDOne,
+			UserIDTwo:  m.UserIDTwo,
+		}
+		if m.Content != nil {
+			if err := json.Unmarshal([]byte(*m.Content), &message.Content); err != nil {
+				return nil, err
+			}
+		}
+
+		result.Messages = append(result.Messages, message)
+	}
+
+	return result, nil
+}
+
 // SessionRefresh refreshes a user's session using a refresh token retrieved from a previous authentication request.
 func (c *Client) SessionRefresh(session *Session, vars map[string]string) (*Session, error) {
 	if session == nil {
