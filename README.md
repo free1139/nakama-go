@@ -122,3 +122,36 @@ log.Print(account.Wallet)
 The client can create one or more sockets with the server. Each socket can have its own event listeners registered for
 responses received from the server.
 
+```go
+secure := false
+trace := false
+socket := client.CreateSocket(secure, trace, nil, nil)
+
+session, _ := socket.Connect(*session, nil, nil)
+// Socket it open
+```
+
+There's many messages for chat, realtime, status events, notifications, etc. which can be sent or received from the socket.
+
+```go
+// Join a chat channel
+roomName := "mychannel"
+chatType := 1 // 1 = Room, 2 = Direct Message, 3 = Group
+persistence := false
+hidden := false
+
+channel, err := socket.JoinChat(roomName, chatType, persistence, hidden)
+if err != nil {
+    log.Fatalf("Failed to join chat: %v", err)
+}
+
+// Send a message to the channel
+message := map[string]interface{}{
+    "hello": "world",
+}
+
+_, err = socket.WriteChatMessage(channel.ID, message)
+if err != nil {
+    log.Fatalf("Failed to send chat message: %v", err)
+}
+```

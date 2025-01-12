@@ -406,7 +406,17 @@ func (socket *DefaultSocket) GenerateCID() string {
 }
 
 // Connect establishes the WebSocket connection with optional timeouts.
-func (socket *DefaultSocket) Connect(session Session, createStatus bool, timeoutMs int) (*Session, error) {
+func (socket *DefaultSocket) Connect(session Session, createStatus *bool, timeoutMs *int) (*Session, error) {
+	if createStatus == nil {
+		defaultStatus := false
+		createStatus = &defaultStatus
+	}
+
+	if timeoutMs == nil {
+		defaultTimeout := DefaultConnectTimeoutMs
+		timeoutMs = &defaultTimeout
+	}
+
 	if socket.Adapter.IsOpen() {
 		return &session, nil
 	}
@@ -416,7 +426,7 @@ func (socket *DefaultSocket) Connect(session Session, createStatus bool, timeout
 		scheme = "wss://"
 	}
 
-	err := socket.Adapter.Connect(scheme, socket.Host, socket.Port, createStatus, session.Token)
+	err := socket.Adapter.Connect(scheme, socket.Host, socket.Port, *createStatus, session.Token)
 	if err != nil {
 		return nil, err
 	}
@@ -434,8 +444,8 @@ func (socket *DefaultSocket) Connect(session Session, createStatus bool, timeout
 	// Set a timeout for the connection process
 	resChan := make(chan error, 1)
 	go func() {
-		time.Sleep(time.Duration(timeoutMs) * time.Millisecond)
-		resChan <- errors.New("Socket connection timed out")
+		time.Sleep(time.Duration(*timeoutMs) * time.Millisecond)
+		resChan <- errors.New("socket connection timed out")
 	}()
 
 	select {
@@ -445,6 +455,8 @@ func (socket *DefaultSocket) Connect(session Session, createStatus bool, timeout
 			return nil, err
 		}
 	}
+
+	socket.pingPong()
 
 	return &session, nil
 }
@@ -568,8 +580,383 @@ func (socket *DefaultSocket) CreateParty(open bool, maxSize int) (*Party, error)
 	return &Party{Open: open, MaxSize: maxSize}, nil
 }
 
+// FollowUsers sends a request to follow a list of user IDs and returns the status.
+func (socket *DefaultSocket) FollowUsers(userIds []string) (*Status, error) {
+	request := map[string]interface{}{
+		"status_follow": map[string]interface{}{
+			"user_ids": userIds,
+		},
+	}
+
+	var response map[string]interface{}
+	err := socket.Send(request, DefaultSendTimeoutMs)
+	if err != nil {
+		return nil, err
+	}
+
+	if respStatus, ok := response["status"].(*Status); ok {
+		return respStatus, nil
+	}
+
+	return nil, fmt.Errorf("invalid response format")
+}
+
+// JoinChat sends a request to join a chat and returns the joined Channel.
+func (socket *DefaultSocket) JoinChat(target string, chatType int, persistence, hidden bool) (*Channel, error) {
+	request := map[string]interface{}{
+		"channel_join": map[string]interface{}{
+			"target":      target,
+			"type":        chatType,
+			"persistence": persistence,
+			"hidden":      hidden,
+		},
+	}
+
+	var response map[string]interface{}
+	err := socket.Send(request, DefaultSendTimeoutMs)
+	if err != nil {
+		return nil, err
+	}
+
+	if channel, ok := response["channel"].(*Channel); ok {
+		return channel, nil
+	}
+
+	return nil, fmt.Errorf("invalid response format: missing or invalid channel field")
+}
+
+// JoinMatch sends a request to join a match and returns the joined Match.
+func (socket *DefaultSocket) JoinMatch(matchID, token string, metadata map[string]interface{}) (*Match, error) {
+	request := map[string]interface{}{
+		"match_join": map[string]interface{}{
+			"metadata": metadata,
+		},
+	}
+
+	if token != "" {
+		request["match_join"].(map[string]interface{})["token"] = token
+	} else {
+		request["match_join"].(map[string]interface{})["match_id"] = matchID
+	}
+
+	var response map[string]interface{}
+	err := socket.Send(request, DefaultSendTimeoutMs)
+	if err != nil {
+		return nil, err
+	}
+
+	if match, ok := response["match"].(*Match); ok {
+		return match, nil
+	}
+
+	return nil, fmt.Errorf("invalid response format: missing or invalid match field")
+}
+
+// JoinParty sends a request to join a party.
+func (socket *DefaultSocket) JoinParty(partyID string) error {
+	request := map[string]interface{}{
+		"party_join": map[string]interface{}{
+			"party_id": partyID,
+		},
+	}
+
+	if err := socket.Send(request, DefaultSendTimeoutMs); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// LeaveChat sends a request to leave a chat channel.
+func (socket *DefaultSocket) LeaveChat(channelID string) error {
+	request := map[string]interface{}{
+		"channel_leave": map[string]interface{}{
+			"channel_id": channelID,
+		},
+	}
+
+	if err := socket.Send(request, DefaultSendTimeoutMs); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// LeaveMatch sends a request to leave a match.
+func (socket *DefaultSocket) LeaveMatch(matchID string) error {
+	request := map[string]interface{}{
+		"match_leave": map[string]interface{}{
+			"match_id": matchID,
+		},
+	}
+
+	if err := socket.Send(request, DefaultSendTimeoutMs); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// LeaveParty sends a request to leave a party.
+func (socket *DefaultSocket) LeaveParty(partyID string) error {
+	request := map[string]interface{}{
+		"party_leave": map[string]interface{}{
+			"party_id": partyID,
+		},
+	}
+
+	if err := socket.Send(request, DefaultSendTimeoutMs); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// ListPartyJoinRequests fetches the list of join requests for a given party ID.
+func (socket *DefaultSocket) ListPartyJoinRequests(partyID string) (*PartyJoinRequest, error) {
+	request := map[string]interface{}{
+		"party_join_request_list": map[string]interface{}{
+			"party_id": partyID,
+		},
+	}
+
+	var response map[string]interface{}
+	err := socket.Send(request, DefaultSendTimeoutMs)
+	if err != nil {
+		return nil, err
+	}
+
+	if joinRequest, ok := response["party_join_request"].(*PartyJoinRequest); ok {
+		return joinRequest, nil
+	}
+
+	return nil, fmt.Errorf("invalid response format: missing or invalid party_join_request field")
+}
+
+// RemoveChatMessage sends a request to remove a chat message and returns the ChannelMessageAck.
+func (socket *DefaultSocket) RemoveChatMessage(channelID, messageID string) (*ChannelMessageAck, error) {
+	request := map[string]interface{}{
+		"channel_message_remove": map[string]interface{}{
+			"channel_id": channelID,
+			"message_id": messageID,
+		},
+	}
+
+	var response map[string]interface{}
+	err := socket.Send(request, DefaultSendTimeoutMs)
+	if err != nil {
+		return nil, err
+	}
+
+	if messageAck, ok := response["channel_message_ack"].(*ChannelMessageAck); ok {
+		return messageAck, nil
+	}
+
+	return nil, fmt.Errorf("invalid response format: missing or invalid channel_message_ack field")
+}
+
+// PromotePartyMember promotes a party member to party leader and returns the new PartyLeader.
+func (socket *DefaultSocket) PromotePartyMember(partyID string, partyMember Presence) (*PartyLeader, error) {
+	request := map[string]interface{}{
+		"party_promote": map[string]interface{}{
+			"party_id": partyID,
+			"presence": partyMember,
+		},
+	}
+
+	var response map[string]interface{}
+	err := socket.Send(request, DefaultSendTimeoutMs)
+	if err != nil {
+		return nil, err
+	}
+
+	if partyLeader, ok := response["party_leader"].(*PartyLeader); ok {
+		return partyLeader, nil
+	}
+
+	return nil, fmt.Errorf("invalid response format: missing or invalid party_leader field")
+}
+
+// RemoveMatchmaker sends a request to remove a matchmaker ticket.
+func (socket *DefaultSocket) RemoveMatchmaker(ticket string) error {
+	request := map[string]interface{}{
+		"matchmaker_remove": map[string]interface{}{
+			"ticket": ticket,
+		},
+	}
+
+	if err := socket.Send(request, DefaultSendTimeoutMs); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// RemoveMatchmakerParty sends a request to remove a matchmaker ticket from a party.
+func (socket *DefaultSocket) RemoveMatchmakerParty(partyID, ticket string) error {
+	request := map[string]interface{}{
+		"party_matchmaker_remove": map[string]interface{}{
+			"party_id": partyID,
+			"ticket":   ticket,
+		},
+	}
+
+	if err := socket.Send(request, DefaultSendTimeoutMs); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// RemovePartyMember sends a request to remove a member from a party.
+func (socket *DefaultSocket) RemovePartyMember(partyID string, member Presence) error {
+	request := map[string]interface{}{
+		"party_remove": map[string]interface{}{
+			"party_id": partyID,
+			"presence": member,
+		},
+	}
+
+	if err := socket.Send(request, DefaultSendTimeoutMs); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// Rpc sends an RPC request and returns an ApiRpc response.
+func (socket *DefaultSocket) Rpc(id, payload, httpKey string) (*ApiRpc, error) {
+	request := map[string]interface{}{
+		"rpc": map[string]interface{}{
+			"id":       id,
+			"payload":  payload,
+			"http_key": httpKey,
+		},
+	}
+
+	var response map[string]interface{}
+	if err := socket.Send(request, DefaultSendTimeoutMs); err != nil {
+		return nil, err
+	}
+
+	if rpc, ok := response["rpc"].(*ApiRpc); ok {
+		return rpc, nil
+	}
+
+	return nil, fmt.Errorf("invalid response format: missing or invalid rpc field")
+}
+
+// SendMatchState sends match state updates to the server.
+func (socket *DefaultSocket) SendMatchState(matchID string, opCode int, data interface{}, presences []Presence, reliable bool) error {
+	request := map[string]interface{}{
+		"match_data_send": map[string]interface{}{
+			"match_id":  matchID,
+			"op_code":   opCode,
+			"data":      data,
+			"presences": presences,
+			"reliable":  reliable,
+		},
+	}
+
+	if err := socket.Send(request, DefaultSendTimeoutMs); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// SendPartyData sends party data updates to the server.
+func (socket *DefaultSocket) SendPartyData(partyID string, opCode int, data interface{}) error {
+	request := map[string]interface{}{
+		"party_data_send": map[string]interface{}{
+			"party_id": partyID,
+			"op_code":  opCode,
+			"data":     data,
+		},
+	}
+
+	if err := socket.Send(request, DefaultSendTimeoutMs); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// UnfollowUsers sends a request to unfollow the specified users.
+func (socket *DefaultSocket) UnfollowUsers(userIDs []string) error {
+	request := map[string]interface{}{
+		"status_unfollow": map[string]interface{}{
+			"user_ids": userIDs,
+		},
+	}
+
+	if err := socket.Send(request, DefaultSendTimeoutMs); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// UpdateChatMessage sends a request to update a chat message and returns the ChannelMessageAck.
+func (socket *DefaultSocket) UpdateChatMessage(channelID, messageID string, content interface{}) (*ChannelMessageAck, error) {
+	request := map[string]interface{}{
+		"channel_message_update": map[string]interface{}{
+			"channel_id": channelID,
+			"message_id": messageID,
+			"content":    content,
+		},
+	}
+
+	var response map[string]interface{}
+	if err := socket.Send(request, DefaultSendTimeoutMs); err != nil {
+		return nil, err
+	}
+
+	if messageAck, ok := response["channel_message_ack"].(*ChannelMessageAck); ok {
+		return messageAck, nil
+	}
+
+	return nil, fmt.Errorf("invalid response format: missing or invalid channel_message_ack field")
+}
+
+// UpdateStatus sends a status update to the server.
+func (socket *DefaultSocket) UpdateStatus(status *string) error {
+	request := map[string]interface{}{
+		"status_update": map[string]interface{}{
+			"status": status,
+		},
+	}
+
+	if err := socket.Send(request, DefaultSendTimeoutMs); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// WriteChatMessage sends a chat message and returns the ChannelMessageAck.
+func (socket *DefaultSocket) WriteChatMessage(channelID string, content interface{}) (*ChannelMessageAck, error) {
+	request := map[string]interface{}{
+		"channel_message_send": map[string]interface{}{
+			"channel_id": channelID,
+			"content":    content,
+		},
+	}
+
+	var response map[string]interface{}
+	if err := socket.Send(request, DefaultSendTimeoutMs); err != nil {
+		return nil, err
+	}
+
+	if messageAck, ok := response["channel_message_ack"].(*ChannelMessageAck); ok {
+		return messageAck, nil
+	}
+
+	return nil, fmt.Errorf("invalid response format: missing or invalid channel_message_ack field")
+}
+
 // PingPong does a periodic ping-pong check with the server.
-func (socket *DefaultSocket) PingPong() {
+func (socket *DefaultSocket) pingPong() {
 	ticker := time.NewTicker(time.Duration(socket.HeartbeatTimeoutMs) * time.Millisecond)
 	defer ticker.Stop()
 
