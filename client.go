@@ -1970,7 +1970,7 @@ func (c *Client) ListTournamentRecords(
 	if apiTournamentRecordList.OwnerRecords != nil {
 		for _, o := range apiTournamentRecordList.OwnerRecords {
 			list.OwnerRecords = append(list.OwnerRecords, LeaderboardRecord{
-				ExpiryTime:    o.ExpiryTime,
+				ExpiryTime:    timeToStringPointer(*o.ExpiryTime, time.RFC3339),
 				LeaderboardID: o.LeaderboardID,
 				Metadata: func() map[string]interface{} {
 					if o.Metadata == nil {
