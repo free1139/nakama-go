@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/url"
 	"reflect"
+	"strconv"
 	"time"
 )
 
@@ -82,4 +83,25 @@ func B64DecodeUnicode(str string) (string, error) {
 func timeToStringPointer(t time.Time, layout string) *string {
 	formattedTime := t.Format(layout)
 	return &formattedTime
+}
+
+// Helper function to convert *string to *int
+func stringPointerToIntPointer(s *string) *int {
+	if s == nil {
+		return nil
+	}
+	value, err := strconv.Atoi(*s)
+	if err != nil {
+		return nil
+	}
+	return &value
+}
+
+// Helper function to convert *int64 to *int
+func int64PointerToIntPointer(i *int64) *int {
+	if i == nil {
+		return nil
+	}
+	value := int(*i)
+	return &value
 }

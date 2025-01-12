@@ -158,7 +158,7 @@ type User struct {
 	EdgeCount             *int                   `json:"edge_count,omitempty"`
 	FacebookID            *string                `json:"facebook_id,omitempty"`
 	FacebookInstantGameID *string                `json:"facebook_instant_game_id,omitempty"`
-	GamecenterID          *string                `json:"gamecenter_id,omitempty"`
+	GameCenterID          *string                `json:"gamecenter_id,omitempty"`
 	GoogleID              *string                `json:"google_id,omitempty"`
 	ID                    *string                `json:"id,omitempty"`
 	LangTag               *string                `json:"lang_tag,omitempty"`
@@ -894,7 +894,7 @@ func (c *Client) FetchUsers(session *Session, ids []string, usernames []string, 
 			DisplayName:  u.DisplayName,
 			EdgeCount:    u.EdgeCount,
 			FacebookID:   u.FacebookID,
-			GamecenterID: u.GamecenterID,
+			GameCenterID: u.GameCenterID,
 			GoogleID:     u.GoogleID,
 			ID:           u.ID,
 			LangTag:      u.LangTag,
@@ -1075,7 +1075,7 @@ func (c *Client) ListGroupUsers(session *Session, groupId string, state *int, li
 				DisplayName:  gu.User.DisplayName,
 				EdgeCount:    gu.User.EdgeCount,
 				FacebookID:   gu.User.FacebookID,
-				GamecenterID: gu.User.GamecenterID,
+				GameCenterID: gu.User.GameCenterID,
 				GoogleID:     gu.User.GoogleID,
 				ID:           gu.User.ID,
 				LangTag:      gu.User.LangTag,
@@ -1373,6 +1373,511 @@ func (c *Client) LinkSteam(session *Session, request *ApiLinkSteamRequest) (bool
 	}
 
 	return response != nil, nil
+}
+
+// ListFriends lists all friends for the current user.
+func (c *Client) ListFriends(session *Session, state *int, limit *int, cursor *string) (*Friends, error) {
+	if c.AutoRefreshSession && session.RefreshToken != "" &&
+		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
+		_, err := c.SessionRefresh(session, nil)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	response, err := c.ApiClient.ListFriends(session.Token, limit, state, cursor, make(map[string]string))
+	if err != nil {
+		return nil, err
+	}
+
+	result := &Friends{
+		Friends: []Friend{},
+		Cursor:  response.Cursor,
+	}
+
+	if response.Friends == nil {
+		return result, nil
+	}
+
+	for _, f := range response.Friends {
+		friend := Friend{
+			User: &User{
+				AvatarURL:             f.User.AvatarURL,
+				CreateTime:            timeToStringPointer(*f.User.CreateTime, time.RFC3339),
+				DisplayName:           f.User.DisplayName,
+				EdgeCount:             f.User.EdgeCount,
+				FacebookID:            f.User.FacebookID,
+				GameCenterID:          f.User.GameCenterID,
+				GoogleID:              f.User.GoogleID,
+				ID:                    f.User.ID,
+				LangTag:               f.User.LangTag,
+				Location:              f.User.Location,
+				Online:                f.User.Online,
+				SteamID:               f.User.SteamID,
+				Timezone:              f.User.Timezone,
+				UpdateTime:            timeToStringPointer(*f.User.UpdateTime, time.RFC3339),
+				Username:              f.User.Username,
+				Metadata:              nil,
+				FacebookInstantGameID: f.User.FacebookInstantGameID,
+			},
+			State: f.State,
+		}
+
+		if f.User.Metadata != nil {
+			if err := json.Unmarshal([]byte(*f.User.Metadata), &friend.User.Metadata); err != nil {
+				return nil, err
+			}
+		}
+
+		result.Friends = append(result.Friends, friend)
+	}
+
+	return result, nil
+}
+
+// ListFriendsOfFriends lists the friends of friends for the current user.
+func (c *Client) ListFriendsOfFriends(session *Session, limit *int, cursor *string) (*FriendsOfFriends, error) {
+	if c.AutoRefreshSession && session.RefreshToken != "" &&
+		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
+		_, err := c.SessionRefresh(session, nil)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	response, err := c.ApiClient.ListFriendsOfFriends(session.Token, limit, cursor, make(map[string]string))
+	if err != nil {
+		return nil, err
+	}
+
+	result := &FriendsOfFriends{
+		FriendsOfFriends: []FriendOfFriend{},
+		Cursor:           response.Cursor,
+	}
+
+	if response.FriendsOfFriends == nil {
+		return result, nil
+	}
+
+	for _, f := range response.FriendsOfFriends {
+		friendOfFriend := FriendOfFriend{
+			Referrer: f.Referrer,
+			User: &User{
+				AvatarURL:             f.User.AvatarURL,
+				CreateTime:            timeToStringPointer(*f.User.CreateTime, time.RFC3339),
+				DisplayName:           f.User.DisplayName,
+				EdgeCount:             f.User.EdgeCount,
+				FacebookID:            f.User.FacebookID,
+				GameCenterID:          f.User.GameCenterID,
+				GoogleID:              f.User.GoogleID,
+				ID:                    f.User.ID,
+				LangTag:               f.User.LangTag,
+				Location:              f.User.Location,
+				Online:                f.User.Online,
+				SteamID:               f.User.SteamID,
+				Timezone:              f.User.Timezone,
+				UpdateTime:            timeToStringPointer(*f.User.UpdateTime, time.RFC3339),
+				Username:              f.User.Username,
+				Metadata:              nil,
+				FacebookInstantGameID: f.User.FacebookInstantGameID,
+			},
+		}
+
+		if f.User.Metadata != nil {
+			if err := json.Unmarshal([]byte(*f.User.Metadata), &friendOfFriend.User.Metadata); err != nil {
+				return nil, err
+			}
+		}
+
+		result.FriendsOfFriends = append(result.FriendsOfFriends, friendOfFriend)
+	}
+
+	return result, nil
+}
+
+// ListLeaderboardRecords lists the leaderboard records with optional ownerIds, pagination, and expiry filters.
+func (c *Client) ListLeaderboardRecords(session *Session, leaderboardId string, ownerIds []string, limit *int, cursor *string, expiry *string) (*LeaderboardRecordList, error) {
+	if c.AutoRefreshSession && session.RefreshToken != "" &&
+		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
+		_, err := c.SessionRefresh(session, nil)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	response, err := c.ApiClient.ListLeaderboardRecords(session.Token, leaderboardId, ownerIds, limit, cursor, expiry, make(map[string]string))
+	if err != nil {
+		return nil, err
+	}
+
+	list := &LeaderboardRecordList{
+		NextCursor:   response.NextCursor,
+		PrevCursor:   response.PrevCursor,
+		RankCount:    stringPointerToIntPointer(response.RankCount),
+		OwnerRecords: []LeaderboardRecord{},
+		Records:      []LeaderboardRecord{},
+	}
+
+	if response.OwnerRecords != nil {
+		for _, o := range response.OwnerRecords {
+			metadata := map[string]interface{}{}
+			if o.Metadata != nil {
+				if err := json.Unmarshal([]byte(*o.Metadata), &metadata); err != nil {
+					return nil, err
+				}
+			}
+
+			list.OwnerRecords = append(list.OwnerRecords, LeaderboardRecord{
+				ExpiryTime:    timeToStringPointer(*o.ExpiryTime, time.RFC3339),
+				LeaderboardID: o.LeaderboardID,
+				Metadata:      metadata,
+				NumScore:      o.NumScore,
+				OwnerID:       o.OwnerID,
+				Rank:          stringPointerToIntPointer(o.Rank),
+				Score:         stringPointerToIntPointer(o.Score),
+				SubScore:      stringPointerToIntPointer(o.Subscore),
+				UpdateTime:    timeToStringPointer(*o.UpdateTime, time.RFC3339),
+				Username:      o.Username,
+				MaxNumScore:   o.MaxNumScore,
+			})
+		}
+	}
+
+	if response.Records != nil {
+		for _, o := range response.Records {
+			metadata := map[string]interface{}{}
+			if o.Metadata != nil {
+				if err := json.Unmarshal([]byte(*o.Metadata), &metadata); err != nil {
+					return nil, err
+				}
+			}
+			list.Records = append(list.Records, LeaderboardRecord{
+				ExpiryTime:    timeToStringPointer(*o.ExpiryTime, time.RFC3339),
+				LeaderboardID: o.LeaderboardID,
+				Metadata:      metadata,
+				NumScore:      o.NumScore,
+				OwnerID:       o.OwnerID,
+				Rank:          stringPointerToIntPointer(o.Rank),
+				Score:         stringPointerToIntPointer(o.Score),
+				SubScore:      stringPointerToIntPointer(o.Subscore),
+				UpdateTime:    timeToStringPointer(*o.UpdateTime, time.RFC3339),
+				Username:      o.Username,
+				MaxNumScore:   o.MaxNumScore,
+			})
+		}
+	}
+
+	return list, nil
+}
+
+func (c *Client) ListLeaderboardRecordsAroundOwner(session *Session, leaderboardId string, ownerId string, limit *int, expiry *string, cursor *string) (*LeaderboardRecordList, error) {
+	if c.AutoRefreshSession && session.RefreshToken != "" &&
+		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
+		_, err := c.SessionRefresh(session, nil)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	response, err := c.ApiClient.ListLeaderboardRecordsAroundOwner(session.Token, leaderboardId, ownerId, limit, expiry, cursor, make(map[string]string))
+	if err != nil {
+		return nil, err
+	}
+
+	list := &LeaderboardRecordList{
+		NextCursor:   response.NextCursor,
+		PrevCursor:   response.PrevCursor,
+		RankCount:    stringPointerToIntPointer(response.RankCount),
+		OwnerRecords: []LeaderboardRecord{},
+		Records:      []LeaderboardRecord{},
+	}
+
+	if response.OwnerRecords != nil {
+		for _, o := range response.OwnerRecords {
+			metadata := map[string]interface{}{}
+			if o.Metadata != nil {
+				if err := json.Unmarshal([]byte(*o.Metadata), &metadata); err != nil {
+					return nil, err
+				}
+			}
+			list.OwnerRecords = append(list.OwnerRecords, LeaderboardRecord{
+				ExpiryTime:    timeToStringPointer(*o.ExpiryTime, time.RFC3339),
+				LeaderboardID: o.LeaderboardID,
+				Metadata:      metadata,
+				NumScore:      o.NumScore,
+				OwnerID:       o.OwnerID,
+				Rank:          stringPointerToIntPointer(o.Rank),
+				Score:         stringPointerToIntPointer(o.Score),
+				SubScore:      stringPointerToIntPointer(o.Subscore),
+				UpdateTime:    timeToStringPointer(*o.UpdateTime, time.RFC3339),
+				Username:      o.Username,
+				MaxNumScore:   o.MaxNumScore,
+			})
+		}
+	}
+
+	if response.Records != nil {
+		for _, o := range response.Records {
+			metadata := map[string]interface{}{}
+			if o.Metadata != nil {
+				if err := json.Unmarshal([]byte(*o.Metadata), &metadata); err != nil {
+					return nil, err
+				}
+			}
+			list.Records = append(list.Records, LeaderboardRecord{
+				ExpiryTime:    timeToStringPointer(*o.ExpiryTime, time.RFC3339),
+				LeaderboardID: o.LeaderboardID,
+				Metadata:      metadata,
+				NumScore:      o.NumScore,
+				OwnerID:       o.OwnerID,
+				Rank:          stringPointerToIntPointer(o.Rank),
+				Score:         stringPointerToIntPointer(o.Score),
+				SubScore:      stringPointerToIntPointer(o.Subscore),
+				UpdateTime:    timeToStringPointer(*o.UpdateTime, time.RFC3339),
+				Username:      o.Username,
+				MaxNumScore:   o.MaxNumScore,
+			})
+		}
+	}
+
+	return list, nil
+}
+
+// ListMatches fetches a list of running matches.
+func (c *Client) ListMatches(session *Session, limit *int, authoritative *bool, label *string, minSize *int, maxSize *int, query *string) (*ApiMatchList, error) {
+	if c.AutoRefreshSession && session.RefreshToken != "" &&
+		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
+		_, err := c.SessionRefresh(session, nil)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	response, err := c.ApiClient.ListMatches(session.Token, limit, authoritative, label, minSize, maxSize, query, make(map[string]string))
+	if err != nil {
+		return nil, err
+	}
+	return &response, nil
+}
+
+// ListNotifications fetches a list of notifications.
+func (c *Client) ListNotifications(session *Session, limit *int, cacheableCursor *string) (*NotificationList, error) {
+	if c.AutoRefreshSession && session.RefreshToken != "" &&
+		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
+		_, err := c.SessionRefresh(session, nil)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	response, err := c.ApiClient.ListNotifications(session.Token, limit, cacheableCursor, make(map[string]string))
+	if err != nil {
+		return nil, err
+	}
+
+	result := &NotificationList{
+		CacheableCursor: response.CacheableCursor,
+		Notifications:   []Notification{},
+	}
+
+	if response.Notifications == nil {
+		return result, nil
+	}
+
+	for _, n := range response.Notifications {
+		var content map[string]interface{}
+		if n.Content != nil {
+			if err := json.Unmarshal([]byte(*n.Content), &content); err != nil {
+				return nil, err
+			}
+		}
+
+		result.Notifications = append(result.Notifications, Notification{
+			Code:       n.Code,
+			CreateTime: timeToStringPointer(*n.CreateTime, time.RFC3339),
+			ID:         n.ID,
+			Persistent: n.Persistent,
+			SenderID:   n.SenderID,
+			Subject:    n.Subject,
+			Content:    content,
+		})
+	}
+
+	return result, nil
+}
+
+// ListStorageObjects retrieves a list of storage objects.
+func (c *Client) ListStorageObjects(session *Session, collection string, userID *string, limit *int, cursor *string) (*StorageObjectList, error) {
+	if c.AutoRefreshSession && session.RefreshToken != "" &&
+		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
+		_, err := c.SessionRefresh(session, nil)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	response, err := c.ApiClient.ListStorageObjects(session.Token, collection, userID, limit, cursor, make(map[string]string))
+	if err != nil {
+		return nil, err
+	}
+
+	result := &StorageObjectList{
+		Objects: []StorageObject{},
+		Cursor:  response.Cursor,
+	}
+
+	if response.Objects == nil {
+		return result, nil
+	}
+
+	for _, o := range response.Objects {
+		var value interface{}
+		if o.Value != nil {
+			if err := json.Unmarshal([]byte(*o.Value), &value); err != nil {
+				return nil, err
+			}
+		}
+
+		result.Objects = append(result.Objects, StorageObject{
+			Collection: o.Collection,
+			Key:        o.Key,
+			PermissionRead: func() *int {
+				if o.PermissionRead != nil {
+					return o.PermissionRead
+				} else {
+					defaultValue := 0
+					return &defaultValue
+				}
+			}(),
+			PermissionWrite: func() *int {
+				if o.PermissionRead != nil {
+					return o.PermissionWrite
+				} else {
+					defaultValue := 0
+					return &defaultValue
+				}
+			}(),
+			Value: func() map[string]interface{} {
+				if v, ok := value.(map[string]interface{}); ok {
+					return v
+				}
+				return nil
+			}(),
+			Version:    o.Version,
+			UserID:     o.UserID,
+			CreateTime: timeToStringPointer(*o.CreateTime, time.RFC3339),
+			UpdateTime: timeToStringPointer(*o.UpdateTime, time.RFC3339),
+		})
+	}
+
+	return result, nil
+}
+
+// ListTournaments retrieves a list of current or upcoming tournaments.
+func (c *Client) ListTournaments(session *Session, categoryStart *int, categoryEnd *int, startTime *int64, endTime *int64, limit *int, cursor *string) (*TournamentList, error) {
+	if c.AutoRefreshSession && session.RefreshToken != "" &&
+		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
+		_, err := c.SessionRefresh(session, nil)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	response, err := c.ApiClient.ListTournaments(session.Token, categoryStart, categoryEnd, startTime, endTime, limit, cursor, make(map[string]string))
+	if err != nil {
+		return nil, err
+	}
+
+	result := &TournamentList{
+		Cursor:      response.Cursor,
+		Tournaments: []Tournament{},
+	}
+
+	if response.Tournaments == nil {
+		return result, nil
+	}
+
+	for _, o := range response.Tournaments {
+		var metadata map[string]interface{}
+		if o.Metadata != nil {
+			if err := json.Unmarshal([]byte(*o.Metadata), &metadata); err != nil {
+				return nil, err
+			}
+		}
+
+		result.Tournaments = append(result.Tournaments, Tournament{
+			ID:          o.ID,
+			Title:       o.Title,
+			Description: o.Description,
+			Duration: func() *int {
+				if o.Duration != nil {
+					return o.Duration
+				}
+				defaultValue := 0
+				return &defaultValue
+			}(),
+			Category: func() *int {
+				if o.Category != nil {
+					return o.Category
+				}
+				defaultValue := 0
+				return &defaultValue
+			}(),
+			SortOrder: func() *int {
+				if o.SortOrder != nil {
+					return o.SortOrder
+				}
+				defaultValue := 0
+				return &defaultValue
+			}(),
+			Size: func() *int {
+				if o.Size != nil {
+					return o.Size
+				}
+				defaultValue := 0
+				return &defaultValue
+			}(),
+			MaxSize: func() *int {
+				if o.MaxSize != nil {
+					return o.MaxSize
+				}
+				defaultValue := 0
+				return &defaultValue
+			}(),
+			MaxNumScore: func() *int {
+				if o.MaxNumScore != nil {
+					return o.MaxNumScore
+				}
+				defaultValue := 0
+				return &defaultValue
+			}(),
+			CanEnter: o.CanEnter,
+			EndActive: func() *int {
+				if o.EndActive != nil {
+					val := int(*o.EndActive)
+					return &val
+				}
+				defaultValue := 0
+				return &defaultValue
+			}(),
+			NextReset: func() *int {
+				if o.NextReset != nil {
+					val := int(*o.NextReset)
+					return &val
+				}
+				defaultValue := 0
+				return &defaultValue
+			}(),
+			Metadata:      metadata,
+			CreateTime:    timeToStringPointer(*o.CreateTime, time.RFC3339),
+			StartTime:     timeToStringPointer(*o.StartTime, time.RFC3339),
+			EndTime:       timeToStringPointer(*o.EndTime, time.RFC3339),
+			StartActive:   int64PointerToIntPointer(o.StartActive),
+			Authoritative: o.Authoritative,
+		})
+	}
+
+	return result, nil
 }
 
 // ValidatePurchaseApple validates an Apple IAP receipt.

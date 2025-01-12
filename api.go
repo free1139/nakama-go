@@ -423,7 +423,7 @@ type ApiUser struct {
 	EdgeCount             *int       `json:"edge_count,omitempty"`
 	FacebookID            *string    `json:"facebook_id,omitempty"`
 	FacebookInstantGameID *string    `json:"facebook_instant_game_id,omitempty"`
-	GamecenterID          *string    `json:"gamecenter_id,omitempty"`
+	GameCenterID          *string    `json:"gamecenter_id,omitempty"`
 	GoogleID              *string    `json:"google_id,omitempty"`
 	ID                    *string    `json:"id,omitempty"`
 	LangTag               *string    `json:"lang_tag,omitempty"`
@@ -3905,7 +3905,7 @@ func (api *NakamaApi) ListFriendsOfFriends(
 	limit *int,
 	cursor *string,
 	options map[string]string,
-) (any, error) {
+) (*ApiFriendsOfFriendsList, error) {
 	// Define the URL path and query parameters
 	urlPath := "/v2/friend/friends"
 	queryParams := url.Values{}
@@ -3969,7 +3969,7 @@ func (api *NakamaApi) ListFriendsOfFriends(
 		if resp.StatusCode == http.StatusNoContent {
 			return nil, nil
 		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			var result any
+			var result *ApiFriendsOfFriendsList
 			bodyBytes, err := io.ReadAll(resp.Body)
 			if err != nil {
 				return nil, err
