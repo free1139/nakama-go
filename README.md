@@ -155,3 +155,11 @@ if err != nil {
     log.Fatalf("Failed to send chat message: %v", err)
 }
 ```
+
+## Contribute
+
+The development roadmap is managed as GitHub issues and pull requests are welcome. If you're interested in enhancing the code please open an issue to discuss the changes.
+
+### License
+
+This project is licensed under the [MIT License](https://github.com/NorthNorthGames/nakama-go/blob/main/LICENSE).
