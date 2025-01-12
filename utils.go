@@ -97,6 +97,15 @@ func stringPointerToIntPointer(s *string) *int {
 	return &value
 }
 
+// Helper function to convert *int to *string
+func intPointerToStringPointer(i *int) *string {
+	if i == nil {
+		return nil
+	}
+	value := strconv.Itoa(*i)
+	return &value
+}
+
 // Helper function to convert *int64 to *int
 func int64PointerToIntPointer(i *int64) *int {
 	if i == nil {

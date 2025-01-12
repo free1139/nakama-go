@@ -1880,6 +1880,264 @@ func (c *Client) ListTournaments(session *Session, categoryStart *int, categoryE
 	return result, nil
 }
 
+// ListSubscriptions lists user subscriptions.
+func (c *Client) ListSubscriptions(session *Session, cursor *string, limit *int) (*SubscriptionList, error) {
+	if c.AutoRefreshSession && session.IsExpired(time.Now().Unix()+c.ExpiredTimespanMs/1000) {
+		if _, err := c.SessionRefresh(session, nil); err != nil {
+			return nil, err
+		}
+	}
+
+	apiSubscriptionList, err := c.ApiClient.ListSubscriptions(
+		session.Token, ApiListSubscriptionsRequest{
+			Cursor: cursor,
+			Limit:  limit,
+		},
+		make(map[string]string),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	subscriptionList := &SubscriptionList{
+		Cursor:     apiSubscriptionList.Cursor,
+		PrevCursor: apiSubscriptionList.PrevCursor,
+		ValidatedSubscriptions: func(subs []ApiValidatedSubscription) []ValidatedSubscription {
+			validatedSubs := make([]ValidatedSubscription, len(subs))
+			for i, sub := range subs {
+				validatedSubs[i] = ValidatedSubscription{
+					Active:                sub.Active,
+					CreateTime:            sub.CreateTime,
+					Environment:           intPointerToStringPointer((*int)(sub.Environment)),
+					ExpiryTime:            sub.ExpiryTime,
+					OriginalTransactionID: sub.OriginalTransactionID,
+					ProductID:             sub.ProductID,
+					ProviderNotification:  sub.ProviderNotification,
+					ProviderResponse:      sub.ProviderResponse,
+					PurchaseTime:          sub.PurchaseTime,
+					RefundTime:            sub.RefundTime,
+					Store:                 intPointerToStringPointer((*int)(sub.Store)),
+					UpdateTime:            sub.UpdateTime,
+					UserID:                sub.UserID,
+				}
+			}
+			return validatedSubs
+		}(apiSubscriptionList.ValidatedSubscriptions),
+	}
+
+	return subscriptionList, nil
+}
+
+// ListTournamentRecords lists tournament records from a given tournament.
+func (c *Client) ListTournamentRecords(
+	session *Session,
+	tournamentId string,
+	ownerIds []string,
+	limit *int,
+	cursor *string,
+	expiry *string,
+) (*TournamentRecordList, error) {
+	// Refresh the session if auto-refresh is enabled and the session is expired.
+	if c.AutoRefreshSession && session.IsExpired(time.Now().Unix()+c.ExpiredTimespanMs/1000) {
+		if _, err := c.SessionRefresh(session, nil); err != nil {
+			return nil, err
+		}
+	}
+
+	// Call the API to list tournament records.
+	apiTournamentRecordList, err := c.ApiClient.ListTournamentRecords(
+		session.Token,
+		tournamentId,
+		ownerIds,
+		limit,
+		cursor,
+		expiry,
+		make(map[string]string),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	// Prepare the response object.
+	list := &TournamentRecordList{
+		NextCursor:   apiTournamentRecordList.NextCursor,
+		PrevCursor:   apiTournamentRecordList.PrevCursor,
+		OwnerRecords: []LeaderboardRecord{},
+		Records:      []LeaderboardRecord{},
+	}
+
+	// Process owner records.
+	if apiTournamentRecordList.OwnerRecords != nil {
+		for _, o := range apiTournamentRecordList.OwnerRecords {
+			list.OwnerRecords = append(list.OwnerRecords, LeaderboardRecord{
+				ExpiryTime:    o.ExpiryTime,
+				LeaderboardID: o.LeaderboardID,
+				Metadata: func() map[string]interface{} {
+					if o.Metadata == nil {
+						return nil
+					}
+					var metadata map[string]interface{}
+					if err := json.Unmarshal([]byte(*o.Metadata), &metadata); err == nil {
+						return metadata
+					}
+					return nil
+				}(),
+				NumScore:    o.NumScore,
+				OwnerID:     o.OwnerID,
+				Rank:        stringPointerToIntPointer(o.Rank),
+				Score:       stringPointerToIntPointer(o.Score),
+				SubScore:    stringPointerToIntPointer(o.Subscore),
+				UpdateTime:  timeToStringPointer(*o.UpdateTime, time.RFC3339),
+				Username:    o.Username,
+				MaxNumScore: o.MaxNumScore,
+			})
+		}
+	}
+
+	// Process records.
+	if apiTournamentRecordList.Records != nil {
+		for _, r := range apiTournamentRecordList.Records {
+			list.Records = append(list.Records, LeaderboardRecord{
+				ExpiryTime:    timeToStringPointer(*r.ExpiryTime, time.RFC3339),
+				LeaderboardID: r.LeaderboardID,
+				Metadata: func() map[string]interface{} {
+					if r.Metadata == nil {
+						return nil
+					}
+					var metadata map[string]interface{}
+					if err := json.Unmarshal([]byte(*r.Metadata), &metadata); err == nil {
+						return metadata
+					}
+					return nil
+				}(),
+				NumScore:    r.NumScore,
+				OwnerID:     r.OwnerID,
+				Rank:        stringPointerToIntPointer(r.Rank),
+				Score:       stringPointerToIntPointer(r.Score),
+				SubScore:    stringPointerToIntPointer(r.Subscore),
+				UpdateTime:  timeToStringPointer(*r.UpdateTime, time.RFC3339),
+				Username:    r.Username,
+				MaxNumScore: r.MaxNumScore,
+			})
+		}
+	}
+
+	return list, nil
+}
+
+// ListTournamentRecordsAroundOwner lists tournament records around a specific owner.
+func (c *Client) ListTournamentRecordsAroundOwner(
+	session *Session,
+	tournamentId string,
+	ownerId string,
+	limit *int,
+	expiry *string,
+	cursor *string,
+) (*TournamentRecordList, error) {
+	if c.AutoRefreshSession && session.RefreshToken != "" &&
+		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
+		if _, err := c.SessionRefresh(session, nil); err != nil {
+			return nil, err
+		}
+	}
+
+	// Call the API to get tournament records around owner.
+	apiTournamentRecordList, err := c.ApiClient.ListTournamentRecordsAroundOwner(
+		session.Token,
+		tournamentId,
+		ownerId,
+		limit,
+		expiry,
+		cursor,
+		make(map[string]string),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	// Prepare the response object.
+	list := &TournamentRecordList{
+		NextCursor:   apiTournamentRecordList.NextCursor,
+		PrevCursor:   apiTournamentRecordList.PrevCursor,
+		OwnerRecords: []LeaderboardRecord{},
+		Records:      []LeaderboardRecord{},
+	}
+
+	// Process owner records.
+	if apiTournamentRecordList.OwnerRecords != nil {
+		for _, o := range apiTournamentRecordList.OwnerRecords {
+			list.OwnerRecords = append(list.OwnerRecords, LeaderboardRecord{
+				ExpiryTime:    timeToStringPointer(*o.ExpiryTime, time.RFC3339),
+				LeaderboardID: o.LeaderboardID,
+				Metadata: func() map[string]interface{} {
+					if o.Metadata == nil {
+						return nil
+					}
+					var metadata map[string]interface{}
+					if err := json.Unmarshal([]byte(*o.Metadata), &metadata); err == nil {
+						return metadata
+					}
+					return nil
+				}(),
+				NumScore:    o.NumScore,
+				OwnerID:     o.OwnerID,
+				Rank:        stringPointerToIntPointer(o.Rank),
+				Score:       stringPointerToIntPointer(o.Score),
+				SubScore:    stringPointerToIntPointer(o.Subscore),
+				UpdateTime:  timeToStringPointer(*o.UpdateTime, time.RFC3339),
+				Username:    o.Username,
+				MaxNumScore: o.MaxNumScore,
+			})
+		}
+	}
+
+	// Process records.
+	if apiTournamentRecordList.Records != nil {
+		for _, r := range apiTournamentRecordList.Records {
+			list.Records = append(list.Records, LeaderboardRecord{
+				ExpiryTime:    timeToStringPointer(*r.ExpiryTime, time.RFC3339),
+				LeaderboardID: r.LeaderboardID,
+				Metadata: func() map[string]interface{} {
+					if r.Metadata == nil {
+						return nil
+					}
+					var metadata map[string]interface{}
+					if err := json.Unmarshal([]byte(*r.Metadata), &metadata); err == nil {
+						return metadata
+					}
+					return nil
+				}(),
+				NumScore:    r.NumScore,
+				OwnerID:     r.OwnerID,
+				Rank:        stringPointerToIntPointer(r.Rank),
+				Score:       stringPointerToIntPointer(r.Score),
+				SubScore:    stringPointerToIntPointer(r.Subscore),
+				UpdateTime:  timeToStringPointer(*r.UpdateTime, time.RFC3339),
+				Username:    r.Username,
+				MaxNumScore: r.MaxNumScore,
+			})
+		}
+	}
+
+	return list, nil
+}
+
+// PromoteGroupUsers promotes the users in a group to the next role up.
+func (c *Client) PromoteGroupUsers(session *Session, groupId string, ids []string) (bool, error) {
+	if c.AutoRefreshSession && session.RefreshToken != "" &&
+		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
+		if _, err := c.SessionRefresh(session, nil); err != nil {
+			return false, err
+		}
+	}
+
+	success, err := c.ApiClient.PromoteGroupUsers(session.Token, groupId, ids, make(map[string]string))
+	if err != nil {
+		return false, err
+	}
+	return success.(bool), nil
+}
+
 // ValidatePurchaseApple validates an Apple IAP receipt.
 func (c *Client) ValidatePurchaseApple(bearerToken string, body *ApiValidatePurchaseAppleRequest) (*ApiValidatePurchaseResponse, error) {
 	if body == nil {
