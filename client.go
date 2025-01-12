@@ -1,9 +1,13 @@
 package nakama
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
+	"net/http"
+	"net/url"
 	"time"
 )
 
@@ -1037,6 +1041,388 @@ func (c *Client) ListChannelMessages(session *Session, channelId string, limit *
 	}
 
 	return result, nil
+}
+
+// ListGroupUsers retrieves a group's users with optional state, limit, and cursor parameters.
+func (c *Client) ListGroupUsers(session *Session, groupId string, state *int, limit *int, cursor *string) (*GroupUserList, error) {
+	if c.AutoRefreshSession && session.RefreshToken != "" &&
+		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
+		_, err := c.SessionRefresh(session, nil)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	apiResponse, err := c.ApiClient.ListGroupUsers(session.Token, groupId, state, limit, cursor, make(map[string]string))
+	if err != nil {
+		return nil, err
+	}
+
+	result := &GroupUserList{
+		GroupUsers: []GroupUser{},
+		Cursor:     apiResponse.Cursor,
+	}
+
+	if apiResponse.GroupUsers == nil {
+		return result, nil
+	}
+
+	for _, gu := range apiResponse.GroupUsers {
+		groupUser := GroupUser{
+			User: &User{
+				AvatarURL:    gu.User.AvatarURL,
+				CreateTime:   timeToStringPointer(*gu.User.CreateTime, time.RFC3339),
+				DisplayName:  gu.User.DisplayName,
+				EdgeCount:    gu.User.EdgeCount,
+				FacebookID:   gu.User.FacebookID,
+				GamecenterID: gu.User.GamecenterID,
+				GoogleID:     gu.User.GoogleID,
+				ID:           gu.User.ID,
+				LangTag:      gu.User.LangTag,
+				Location:     gu.User.Location,
+				Online:       gu.User.Online,
+				SteamID:      gu.User.SteamID,
+				Timezone:     gu.User.Timezone,
+				UpdateTime:   timeToStringPointer(*gu.User.UpdateTime, time.RFC3339),
+				Username:     gu.User.Username,
+				Metadata:     nil,
+			},
+			State: gu.State,
+		}
+
+		if gu.User.Metadata != nil {
+			if err := json.Unmarshal([]byte(*gu.User.Metadata), &groupUser.User.Metadata); err != nil {
+				return nil, err
+			}
+		}
+
+		result.GroupUsers = append(result.GroupUsers, groupUser)
+	}
+
+	return result, nil
+}
+
+// ListUserGroups lists a user's groups.
+func (c *Client) ListUserGroups(session *Session, userId string, state *int, limit *int, cursor *string) (*UserGroupList, error) {
+	if c.AutoRefreshSession && session.RefreshToken != "" &&
+		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
+		_, err := c.SessionRefresh(session, nil)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	apiResponse, err := c.ApiClient.ListUserGroups(session.Token, userId, state, limit, cursor, make(map[string]string))
+	if err != nil {
+		return nil, err
+	}
+
+	result := &UserGroupList{
+		UserGroups: []UserGroup{},
+		Cursor:     apiResponse.Cursor,
+	}
+
+	if apiResponse.UserGroups == nil {
+		return result, nil
+	}
+
+	for _, ug := range *apiResponse.UserGroups {
+		userGroup := UserGroup{
+			Group: &Group{
+				AvatarURL:   ug.Group.AvatarURL,
+				CreateTime:  timeToStringPointer(*ug.Group.CreateTime, time.RFC3339),
+				CreatorID:   ug.Group.CreatorID,
+				Description: ug.Group.Description,
+				EdgeCount:   ug.Group.EdgeCount,
+				ID:          ug.Group.ID,
+				LangTag:     ug.Group.LangTag,
+				MaxCount:    ug.Group.MaxCount,
+				Metadata:    nil,
+				Name:        ug.Group.Name,
+				Open:        ug.Group.Open,
+				UpdateTime:  timeToStringPointer(*ug.Group.UpdateTime, time.RFC3339),
+			},
+			State: ug.State,
+		}
+
+		if ug.Group.Metadata != nil {
+			if err := json.Unmarshal([]byte(*ug.Group.Metadata), &userGroup.Group.Metadata); err != nil {
+				return nil, err
+			}
+		}
+
+		result.UserGroups = append(result.UserGroups, userGroup)
+	}
+
+	return result, nil
+}
+
+// ListGroups retrieves a list of groups based on the given filters.
+func (c *Client) ListGroups(session *Session, name *string, cursor *string, limit *int) (*GroupList, error) {
+	if c.AutoRefreshSession && session.RefreshToken != "" &&
+		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
+		_, err := c.SessionRefresh(session, nil)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	apiResponse, err := c.ApiClient.ListGroups(session.Token, name, cursor, limit, nil, nil, nil, make(map[string]string))
+	if err != nil {
+		return nil, err
+	}
+
+	result := &GroupList{
+		Groups: []Group{},
+		Cursor: apiResponse.Cursor,
+	}
+
+	if apiResponse.Groups == nil {
+		return result, nil
+	}
+
+	for _, ug := range apiResponse.Groups {
+		group := Group{
+			AvatarURL:   ug.AvatarURL,
+			CreateTime:  timeToStringPointer(*ug.CreateTime, time.RFC3339),
+			CreatorID:   ug.CreatorID,
+			Description: ug.Description,
+			EdgeCount:   nil,
+			ID:          ug.ID,
+			LangTag:     ug.LangTag,
+			MaxCount:    ug.MaxCount,
+			Metadata:    nil,
+			Name:        ug.Name,
+			Open:        ug.Open,
+			UpdateTime:  timeToStringPointer(*ug.UpdateTime, time.RFC3339),
+		}
+
+		// Convert optional fields
+		if ug.EdgeCount != nil {
+			group.EdgeCount = ug.EdgeCount
+		}
+		if ug.Metadata != nil {
+			if err := json.Unmarshal([]byte(*ug.Metadata), &group.Metadata); err != nil {
+				return nil, err
+			}
+		}
+
+		result.Groups = append(result.Groups, group)
+	}
+
+	return result, nil
+}
+
+// LinkApple adds an Apple ID to the social profiles on the current user's account.
+func (c *Client) LinkApple(session *Session, request *ApiAccountApple) (bool, error) {
+	if c.AutoRefreshSession && session.RefreshToken != "" &&
+		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
+		_, err := c.SessionRefresh(session, nil)
+		if err != nil {
+			return false, err
+		}
+	}
+
+	response, err := c.ApiClient.LinkApple(session.Token, *request, make(map[string]string))
+	if err != nil {
+		return false, err
+	}
+
+	return response != nil, nil
+}
+
+// LinkCustom adds a custom ID to the social profiles on the current user's account.
+func (c *Client) LinkCustom(session *Session, request *ApiAccountCustom) (bool, error) {
+	if c.AutoRefreshSession && session.RefreshToken != "" &&
+		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
+		_, err := c.SessionRefresh(session, nil)
+		if err != nil {
+			return false, err
+		}
+	}
+
+	response, err := c.ApiClient.LinkCustom(session.Token, *request, make(map[string]string))
+	if err != nil {
+		return false, err
+	}
+
+	return response != nil, nil
+}
+
+// LinkDevice adds a device ID to the social profiles on the current user's account.
+func (c *Client) LinkDevice(session *Session, request *ApiAccountDevice) (bool, error) {
+	if c.AutoRefreshSession && session.RefreshToken != "" &&
+		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
+		_, err := c.SessionRefresh(session, nil)
+		if err != nil {
+			return false, err
+		}
+	}
+
+	response, err := c.ApiClient.LinkDevice(session.Token, *request, make(map[string]string))
+	if err != nil {
+		return false, err
+	}
+
+	return response != nil, nil
+}
+
+// LinkEmail adds an email and password to the social profiles on the current user's account.
+func (c *Client) LinkEmail(session *Session, request *ApiAccountEmail) (bool, error) {
+	if c.AutoRefreshSession && session.RefreshToken != "" &&
+		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
+		_, err := c.SessionRefresh(session, nil)
+		if err != nil {
+			return false, err
+		}
+	}
+
+	response, err := c.ApiClient.LinkEmail(session.Token, *request, make(map[string]string))
+	if err != nil {
+		return false, err
+	}
+
+	return response != nil, nil
+}
+
+// LinkFacebook adds a Facebook ID to the social profiles on the current user's account.
+func (c *Client) LinkFacebook(session *Session, request *ApiAccountFacebook) (bool, error) {
+	if c.AutoRefreshSession && session.RefreshToken != "" &&
+		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
+		_, err := c.SessionRefresh(session, nil)
+		if err != nil {
+			return false, err
+		}
+	}
+
+	response, err := c.ApiClient.LinkFacebook(session.Token, *request, nil, make(map[string]string))
+	if err != nil {
+		return false, err
+	}
+
+	return response != nil, nil
+}
+
+// LinkFacebookInstant adds Facebook Instant to the social profiles on the current user's account.
+func (c *Client) LinkFacebookInstant(session *Session, request *ApiAccountFacebookInstantGame) (bool, error) {
+	if c.AutoRefreshSession && session.RefreshToken != "" &&
+		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
+		_, err := c.SessionRefresh(session, nil)
+		if err != nil {
+			return false, err
+		}
+	}
+
+	response, err := c.ApiClient.LinkFacebookInstantGame(session.Token, *request, make(map[string]string))
+	if err != nil {
+		return false, err
+	}
+
+	return response != nil, nil
+}
+
+// LinkGoogle adds a Google account to the social profiles on the current user's account.
+func (c *Client) LinkGoogle(session *Session, request *ApiAccountGoogle) (bool, error) {
+	if c.AutoRefreshSession && session.RefreshToken != "" &&
+		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
+		_, err := c.SessionRefresh(session, nil)
+		if err != nil {
+			return false, err
+		}
+	}
+
+	response, err := c.ApiClient.LinkGoogle(session.Token, *request, make(map[string]string))
+	if err != nil {
+		return false, err
+	}
+
+	return response != nil, nil
+}
+
+// LinkGameCenter adds GameCenter to the social profiles on the current user's account.
+func (c *Client) LinkGameCenter(session *Session, request *ApiAccountGameCenter) (bool, error) {
+	if c.AutoRefreshSession && session.RefreshToken != "" &&
+		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
+		_, err := c.SessionRefresh(session, nil)
+		if err != nil {
+			return false, err
+		}
+	}
+
+	response, err := c.ApiClient.LinkGameCenter(session.Token, *request, make(map[string]string))
+	if err != nil {
+		return false, err
+	}
+
+	return response != nil, nil
+}
+
+// LinkSteam adds Steam to the social profiles on the current user's account.
+func (c *Client) LinkSteam(session *Session, request *ApiLinkSteamRequest) (bool, error) {
+	if c.AutoRefreshSession && session.RefreshToken != "" &&
+		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
+		_, err := c.SessionRefresh(session, nil)
+		if err != nil {
+			return false, err
+		}
+	}
+
+	response, err := c.ApiClient.LinkSteam(session.Token, *request, make(map[string]string))
+	if err != nil {
+		return false, err
+	}
+
+	return response != nil, nil
+}
+
+// ValidatePurchaseApple validates an Apple IAP receipt.
+func (c *Client) ValidatePurchaseApple(bearerToken string, body *ApiValidatePurchaseAppleRequest) (*ApiValidatePurchaseResponse, error) {
+	if body == nil {
+		return nil, fmt.Errorf("'body' is a required parameter but is nil")
+	}
+
+	urlPath := "/v2/iap/purchase/apple"
+	queryParams := url.Values{}
+
+	bodyJson, err := json.Marshal(body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to serialize body to JSON: %w", err)
+	}
+
+	fullUrl := c.ApiClient.buildFullUrl(c.ApiClient.BasePath, urlPath, queryParams)
+	req, err := http.NewRequest("POST", fullUrl, bytes.NewBuffer(bodyJson))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create HTTP request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	if bearerToken != "" {
+		req.Header.Set("Authorization", "Bearer "+bearerToken)
+	}
+
+	client := &http.Client{
+		Timeout: time.Duration(c.ApiClient.TimeoutMs) * time.Millisecond,
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to make HTTP request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNoContent {
+		return nil, nil
+	} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		var apiResponse ApiValidatePurchaseResponse
+		if err := json.NewDecoder(resp.Body).Decode(&apiResponse); err != nil {
+			return nil, fmt.Errorf("failed to decode response JSON: %w", err)
+		}
+		return &apiResponse, nil
+	}
+
+	// Handle non-2xx responses
+	respBody, _ := io.ReadAll(resp.Body)
+	return nil, fmt.Errorf("unexpected response status: %d, body: %s", resp.StatusCode, string(respBody))
 }
 
 // SessionRefresh refreshes a user's session using a refresh token retrieved from a previous authentication request.

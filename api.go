@@ -2365,6 +2365,90 @@ func (api *NakamaApi) LinkGoogle(
 	}
 }
 
+// LinkSteam adds a Steam account to the social profiles on the current user's account.
+func (api *NakamaApi) LinkSteam(
+	bearerToken string,
+	body ApiLinkSteamRequest,
+	options map[string]string,
+) (any, error) {
+	// Define the URL path and query parameters
+	urlPath := "/v2/account/link/steam"
+	queryParams := url.Values{}
+
+	// Convert the body to JSON
+	bodyJson, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+
+	// Construct the full URL
+	fullUrl := api.buildFullUrl(api.BasePath, urlPath, queryParams)
+
+	// Prepare the HTTP request
+	req, err := http.NewRequest("POST", fullUrl, bytes.NewBuffer(bodyJson))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	// Set Bearer Token authorization header
+	if bearerToken != "" {
+		req.Header.Set("Authorization", "Bearer "+bearerToken)
+	}
+
+	// Apply additional custom headers or options if needed
+	for key, value := range options {
+		req.Header.Set(key, value)
+	}
+
+	// Create a context with a timeout
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(api.TimeoutMs)*time.Millisecond)
+	defer cancel()
+
+	// Make the HTTP request
+	client := &http.Client{}
+	responseChan := make(chan *http.Response, 1)
+	errorChan := make(chan error, 1)
+
+	// Run the HTTP request in a goroutine
+	go func() {
+		resp, err := client.Do(req.WithContext(ctx))
+		if err != nil {
+			errorChan <- err
+			return
+		}
+		responseChan <- resp
+	}()
+
+	// Wait for the response or the timeout
+	select {
+	case <-ctx.Done():
+		return nil, errors.New("request timed out")
+	case err := <-errorChan:
+		return nil, err
+	case resp := <-responseChan:
+		defer resp.Body.Close()
+
+		// Handle HTTP response
+		if resp.StatusCode == http.StatusNoContent {
+			return nil, nil
+		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+			var result any
+			bodyBytes, err := io.ReadAll(resp.Body)
+			if err != nil {
+				return nil, err
+			}
+			err = json.Unmarshal(bodyBytes, &result)
+			if err != nil {
+				return nil, err
+			}
+			return result, nil
+		} else {
+			return nil, errors.New(resp.Status)
+		}
+	}
+}
+
 // SessionRefresh refreshes a user's session using a refresh token retrieved from a previous authentication request.
 func (api *NakamaApi) SessionRefresh(
 	basicAuthUsername string,
@@ -3995,7 +4079,7 @@ func (api *NakamaApi) ListGroups(
 	members *int,
 	open *bool,
 	options map[string]string,
-) (any, error) {
+) (*ApiGroupList, error) {
 	// Define the URL path and query parameters
 	urlPath := "/v2/group"
 	queryParams := url.Values{}
@@ -4071,7 +4155,7 @@ func (api *NakamaApi) ListGroups(
 		if resp.StatusCode == http.StatusNoContent {
 			return nil, nil
 		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			var result any
+			var result *ApiGroupList
 			bodyBytes, err := io.ReadAll(resp.Body)
 			if err != nil {
 				return nil, err
@@ -4956,7 +5040,7 @@ func (api *NakamaApi) ListGroupUsers(
 	state *int,
 	cursor *string,
 	options map[string]string,
-) (any, error) {
+) (*ApiGroupUserList, error) {
 	// Validate the required parameter
 	if groupId == "" {
 		return nil, errors.New("'groupId' is a required parameter but is empty")
@@ -5027,7 +5111,7 @@ func (api *NakamaApi) ListGroupUsers(
 		if resp.StatusCode == http.StatusNoContent {
 			return nil, nil
 		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			var result any
+			var result *ApiGroupUserList
 			bodyBytes, err := io.ReadAll(resp.Body)
 			if err != nil {
 				return nil, err
