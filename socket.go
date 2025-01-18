@@ -649,14 +649,14 @@ func (socket *DefaultSocket) JoinChat(target string, chatType int, persistence, 
 }
 
 // JoinMatch sends a request to join a match and returns the joined Match.
-func (socket *DefaultSocket) JoinMatch(matchID, token string, metadata map[string]interface{}) (*Match, error) {
+func (socket *DefaultSocket) JoinMatch(matchID, token *string, metadata *map[string]interface{}) (*Match, error) {
 	request := map[string]interface{}{
 		"match_join": map[string]interface{}{
 			"metadata": metadata,
 		},
 	}
 
-	if token != "" {
+	if token != nil && *token != "" {
 		request["match_join"].(map[string]interface{})["token"] = token
 	} else {
 		request["match_join"].(map[string]interface{})["match_id"] = matchID
