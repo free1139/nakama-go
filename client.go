@@ -2563,3 +2563,199 @@ func (c *Client) ValidatePurchaseGoogle(session *Session, purchase *string, pers
 
 	return response, nil
 }
+
+// ValidatePurchaseHuawei validates a Huawei IAP receipt.
+func (c *Client) ValidatePurchaseHuawei(session *Session, purchase *string, signature *string, persist bool) (*ApiValidatePurchaseResponse, error) {
+	if c.AutoRefreshSession && session.RefreshToken != "" &&
+		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
+		if _, err := c.SessionRefresh(session, nil); err != nil {
+			return nil, err
+		}
+	}
+
+	response, err := c.ApiClient.ValidatePurchaseHuawei(session.Token, ApiValidatePurchaseHuaweiRequest{
+		Purchase:  purchase,
+		Signature: signature,
+		Persist:   &persist,
+	}, make(map[string]string))
+	if err != nil {
+		return nil, err
+	}
+
+	return response, nil
+}
+
+// ValidateSubscriptionApple validates an Apple subscription receipt.
+func (c *Client) ValidateSubscriptionApple(session *Session, receipt *string, persist bool) (*ApiValidateSubscriptionResponse, error) {
+	if c.AutoRefreshSession && session.RefreshToken != "" &&
+		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
+		if _, err := c.SessionRefresh(session, nil); err != nil {
+			return nil, err
+		}
+	}
+
+	response, err := c.ApiClient.ValidateSubscriptionApple(session.Token, ApiValidateSubscriptionAppleRequest{
+		Receipt: receipt,
+		Persist: &persist,
+	}, make(map[string]string))
+	if err != nil {
+		return nil, err
+	}
+
+	return response, nil
+}
+
+// ValidateSubscriptionGoogle validates a Google subscription receipt.
+func (c *Client) ValidateSubscriptionGoogle(session *Session, receipt *string, persist bool) (*ApiValidateSubscriptionResponse, error) {
+	if c.AutoRefreshSession && session.RefreshToken != "" &&
+		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
+		if _, err := c.SessionRefresh(session, nil); err != nil {
+			return nil, err
+		}
+	}
+
+	response, err := c.ApiClient.ValidateSubscriptionGoogle(session.Token, ApiValidateSubscriptionGoogleRequest{
+		Receipt: receipt,
+		Persist: &persist,
+	}, make(map[string]string))
+	if err != nil {
+		return nil, err
+	}
+
+	return response, nil
+}
+
+// WriteLeaderboardRecord writes a record to a leaderboard.
+func (c *Client) WriteLeaderboardRecord(session *Session, leaderboardId string, request *WriteLeaderboardRecord) (*LeaderboardRecord, error) {
+	if c.AutoRefreshSession && session.RefreshToken != "" &&
+		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
+		if _, err := c.SessionRefresh(session, nil); err != nil {
+			return nil, err
+		}
+	}
+
+	response, err := c.ApiClient.WriteLeaderboardRecord(
+		session.Token,
+		leaderboardId,
+		WriteLeaderboardRecordRequestLeaderboardRecordWrite{
+			Metadata: func() *string {
+				if request.Metadata != nil {
+					metadata := fmt.Sprintf("%s", request.Metadata)
+					return &metadata
+				}
+				return nil
+			}(),
+			Score:    request.Score,
+			Subscore: request.SubScore,
+		},
+		make(map[string]string),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	leaderboardRecord := &LeaderboardRecord{
+		ExpiryTime:    timeToStringPointer(*response.ExpiryTime, time.RFC3339),
+		LeaderboardID: response.LeaderboardID,
+		Metadata: func() map[string]interface{} {
+			if response.Metadata != nil {
+				var metadata map[string]interface{}
+				json.Unmarshal([]byte(*response.Metadata), &metadata)
+				return metadata
+			}
+			return nil
+		}(),
+		NumScore:    response.NumScore,
+		OwnerID:     response.OwnerID,
+		Score:       stringPointerToIntPointer(response.Score),
+		SubScore:    stringPointerToIntPointer(response.Subscore),
+		UpdateTime:  timeToStringPointer(*response.UpdateTime, time.RFC3339),
+		Username:    response.Username,
+		MaxNumScore: response.MaxNumScore,
+		Rank:        stringPointerToIntPointer(response.Rank),
+	}
+
+	return leaderboardRecord, nil
+}
+
+// WriteStorageObjects writes storage objects.
+func (c *Client) WriteStorageObjects(session *Session, objects []WriteStorageObject) (*ApiStorageObjectAcks, error) {
+	if c.AutoRefreshSession && session.RefreshToken != "" &&
+		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
+		if _, err := c.SessionRefresh(session, nil); err != nil {
+			return nil, err
+		}
+	}
+
+	request := ApiWriteStorageObjectsRequest{Objects: &[]ApiWriteStorageObject{}}
+	for _, o := range objects {
+		*request.Objects = append(*request.Objects, ApiWriteStorageObject{
+			Collection:      o.Collection,
+			Key:             o.Key,
+			PermissionRead:  o.PermissionRead,
+			PermissionWrite: o.PermissionWrite,
+			Value:           func() *string { v := string(ToJSON(o.Value)); return &v }(),
+			Version:         o.Version,
+		})
+	}
+
+	storageObjects, err := c.ApiClient.WriteStorageObjects(session.Token, request, make(map[string]string))
+	if err != nil {
+		return nil, err
+	}
+
+	return &storageObjects, nil
+}
+
+// WriteTournamentRecord writes a record to a tournament.
+func (c *Client) WriteTournamentRecord(session *Session, tournamentId string, request *WriteTournamentRecord) (*LeaderboardRecord, error) {
+	if c.AutoRefreshSession && session.RefreshToken != "" &&
+		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
+		if _, err := c.SessionRefresh(session, nil); err != nil {
+			return nil, err
+		}
+	}
+
+	response, err := c.ApiClient.WriteTournamentRecord(
+		session.Token,
+		tournamentId,
+		WriteTournamentRecordRequestTournamentRecordWrite{
+			Metadata: func() *string {
+				if request.Metadata != nil {
+					metadata := fmt.Sprintf("%s", request.Metadata)
+					return &metadata
+				}
+				return nil
+			}(),
+			Score:    request.Score,
+			Subscore: request.SubScore,
+		},
+		make(map[string]string),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	tournamentRecord := &LeaderboardRecord{
+		ExpiryTime:    timeToStringPointer(*response.ExpiryTime, time.RFC3339),
+		LeaderboardID: response.LeaderboardID,
+		Metadata: func() map[string]interface{} {
+			if response.Metadata != nil {
+				var metadata map[string]interface{}
+				json.Unmarshal([]byte(*response.Metadata), &metadata)
+				return metadata
+			}
+			return nil
+		}(),
+		NumScore:    response.NumScore,
+		OwnerID:     response.OwnerID,
+		Score:       stringPointerToIntPointer(response.Score),
+		SubScore:    stringPointerToIntPointer(response.Subscore),
+		UpdateTime:  timeToStringPointer(*response.UpdateTime, time.RFC3339),
+		Username:    response.Username,
+		MaxNumScore: response.MaxNumScore,
+		Rank:        stringPointerToIntPointer(response.Rank),
+	}
+
+	return tournamentRecord, nil
+}

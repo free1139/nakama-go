@@ -5393,7 +5393,7 @@ func (api *NakamaApi) ValidatePurchaseHuawei(
 	bearerToken string,
 	body ApiValidatePurchaseHuaweiRequest,
 	options map[string]string,
-) (any, error) {
+) (*ApiValidatePurchaseResponse, error) {
 	// Validate the required parameter
 	if body == (ApiValidatePurchaseHuaweiRequest{}) {
 		return nil, errors.New("'body' is a required parameter but is null or undefined.")
@@ -5461,7 +5461,7 @@ func (api *NakamaApi) ValidatePurchaseHuawei(
 		if resp.StatusCode == http.StatusNoContent {
 			return nil, nil
 		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			var result any
+			var result *ApiValidatePurchaseResponse
 			bodyBytes, err := io.ReadAll(resp.Body)
 			if err != nil {
 				return nil, err
@@ -5572,11 +5572,11 @@ func (api *NakamaApi) ValidateSubscriptionApple(
 	bearerToken string,
 	body ApiValidateSubscriptionAppleRequest,
 	options map[string]string,
-) (ApiValidateSubscriptionResponse, error) {
+) (*ApiValidateSubscriptionResponse, error) {
 
 	// Validate the required parameter
 	if body == (ApiValidateSubscriptionAppleRequest{}) {
-		return ApiValidateSubscriptionResponse{}, errors.New("'body' is a required parameter but is null or undefined.")
+		return nil, errors.New("'body' is a required parameter but is null or undefined.")
 	}
 
 	// Define the URL path
@@ -5586,7 +5586,7 @@ func (api *NakamaApi) ValidateSubscriptionApple(
 	// Serialize the body to JSON
 	bodyJson, err := json.Marshal(body)
 	if err != nil {
-		return ApiValidateSubscriptionResponse{}, err
+		return nil, err
 	}
 
 	// Construct the full URL
@@ -5595,7 +5595,7 @@ func (api *NakamaApi) ValidateSubscriptionApple(
 	// Prepare the HTTP request
 	req, err := http.NewRequest("POST", fullUrl, bytes.NewReader(bodyJson))
 	if err != nil {
-		return ApiValidateSubscriptionResponse{}, err
+		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
 
@@ -5631,28 +5631,28 @@ func (api *NakamaApi) ValidateSubscriptionApple(
 	// Wait for the response or the timeout
 	select {
 	case <-ctx.Done():
-		return ApiValidateSubscriptionResponse{}, errors.New("request timed out")
+		return nil, errors.New("request timed out")
 	case err := <-errorChan:
-		return ApiValidateSubscriptionResponse{}, err
+		return nil, err
 	case resp := <-responseChan:
 		defer resp.Body.Close()
 
 		// Handle HTTP response
 		if resp.StatusCode == http.StatusNoContent {
-			return ApiValidateSubscriptionResponse{}, nil
+			return &ApiValidateSubscriptionResponse{}, nil
 		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 			var result ApiValidateSubscriptionResponse
 			bodyBytes, err := io.ReadAll(resp.Body)
 			if err != nil {
-				return ApiValidateSubscriptionResponse{}, err
+				return nil, err
 			}
 			err = json.Unmarshal(bodyBytes, &result)
 			if err != nil {
-				return ApiValidateSubscriptionResponse{}, err
+				return nil, err
 			}
-			return result, nil
+			return &result, nil
 		} else {
-			return ApiValidateSubscriptionResponse{}, errors.New(resp.Status)
+			return nil, errors.New(resp.Status)
 		}
 	}
 }
@@ -5662,11 +5662,11 @@ func (api *NakamaApi) ValidateSubscriptionGoogle(
 	bearerToken string,
 	body ApiValidateSubscriptionGoogleRequest,
 	options map[string]string,
-) (ApiValidateSubscriptionResponse, error) {
+) (*ApiValidateSubscriptionResponse, error) {
 
 	// Validate the required parameter
 	if body == (ApiValidateSubscriptionGoogleRequest{}) {
-		return ApiValidateSubscriptionResponse{}, errors.New("'body' is a required parameter but is null or undefined.")
+		return nil, errors.New("'body' is a required parameter but is null or undefined.")
 	}
 
 	// Define the URL path
@@ -5676,7 +5676,7 @@ func (api *NakamaApi) ValidateSubscriptionGoogle(
 	// Serialize the body to JSON
 	bodyJson, err := json.Marshal(body)
 	if err != nil {
-		return ApiValidateSubscriptionResponse{}, err
+		return nil, err
 	}
 
 	// Construct the full URL
@@ -5685,7 +5685,7 @@ func (api *NakamaApi) ValidateSubscriptionGoogle(
 	// Prepare the HTTP request
 	req, err := http.NewRequest("POST", fullUrl, bytes.NewReader(bodyJson))
 	if err != nil {
-		return ApiValidateSubscriptionResponse{}, err
+		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
 
@@ -5721,28 +5721,28 @@ func (api *NakamaApi) ValidateSubscriptionGoogle(
 	// Wait for the response or the timeout
 	select {
 	case <-ctx.Done():
-		return ApiValidateSubscriptionResponse{}, errors.New("request timed out")
+		return nil, errors.New("request timed out")
 	case err := <-errorChan:
-		return ApiValidateSubscriptionResponse{}, err
+		return nil, err
 	case resp := <-responseChan:
 		defer resp.Body.Close()
 
 		// Handle HTTP response
 		if resp.StatusCode == http.StatusNoContent {
-			return ApiValidateSubscriptionResponse{}, nil
+			return &ApiValidateSubscriptionResponse{}, nil
 		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			var result ApiValidateSubscriptionResponse
+			var result *ApiValidateSubscriptionResponse
 			bodyBytes, err := io.ReadAll(resp.Body)
 			if err != nil {
-				return ApiValidateSubscriptionResponse{}, err
+				return nil, err
 			}
 			err = json.Unmarshal(bodyBytes, &result)
 			if err != nil {
-				return ApiValidateSubscriptionResponse{}, err
+				return nil, err
 			}
 			return result, nil
 		} else {
-			return ApiValidateSubscriptionResponse{}, errors.New(resp.Status)
+			return nil, errors.New(resp.Status)
 		}
 	}
 }

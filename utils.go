@@ -114,3 +114,12 @@ func int64PointerToIntPointer(i *int64) *int {
 	value := int(*i)
 	return &value
 }
+
+// Helper function to convert a value to JSON string
+func ToJSON(value interface{}) []byte {
+	data, err := json.Marshal(value)
+	if err != nil {
+		panic(err) // Handle properly depending on your use case.
+	}
+	return data
+}
