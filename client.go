@@ -1,13 +1,9 @@
 package nakama
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log"
-	"net/http"
-	"net/url"
 	"time"
 )
 
@@ -2145,54 +2141,153 @@ func (c *Client) PromoteGroupUsers(session *Session, groupId string, ids []strin
 	return success.(bool), nil
 }
 
-// ValidatePurchaseApple validates an Apple IAP receipt.
-func (c *Client) ValidatePurchaseApple(bearerToken string, body *ApiValidatePurchaseAppleRequest) (*ApiValidatePurchaseResponse, error) {
-	if body == nil {
-		return nil, fmt.Errorf("'body' is a required parameter but is nil")
-	}
-
-	urlPath := "/v2/iap/purchase/apple"
-	queryParams := url.Values{}
-
-	bodyJson, err := json.Marshal(body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to serialize body to JSON: %w", err)
-	}
-
-	fullUrl := c.ApiClient.buildFullUrl(c.ApiClient.BasePath, urlPath, queryParams)
-	req, err := http.NewRequest("POST", fullUrl, bytes.NewBuffer(bodyJson))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create HTTP request: %w", err)
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-	if bearerToken != "" {
-		req.Header.Set("Authorization", "Bearer "+bearerToken)
-	}
-
-	client := &http.Client{
-		Timeout: time.Duration(c.ApiClient.TimeoutMs) * time.Millisecond,
-	}
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to make HTTP request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode == http.StatusNoContent {
-		return nil, nil
-	} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-		var apiResponse ApiValidatePurchaseResponse
-		if err := json.NewDecoder(resp.Body).Decode(&apiResponse); err != nil {
-			return nil, fmt.Errorf("failed to decode response JSON: %w", err)
+// ReadStorageObjects fetches storage objects.
+func (c *Client) ReadStorageObjects(session *Session, request *ApiReadStorageObjectsRequest) (*StorageObjects, error) {
+	if c.AutoRefreshSession && session.RefreshToken != "" &&
+		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
+		if _, err := c.SessionRefresh(session, nil); err != nil {
+			return nil, err
 		}
-		return &apiResponse, nil
 	}
 
-	// Handle non-2xx responses
-	respBody, _ := io.ReadAll(resp.Body)
-	return nil, fmt.Errorf("unexpected response status: %d, body: %s", resp.StatusCode, string(respBody))
+	apiResponse, err := c.ApiClient.ReadStorageObjects(session.Token, *request, make(map[string]string))
+	if err != nil {
+		return nil, err
+	}
+
+	result := &StorageObjects{Objects: []StorageObject{}}
+
+	if apiResponse.Objects == nil {
+		return result, nil
+	}
+
+	for _, o := range apiResponse.Objects {
+		result.Objects = append(result.Objects, StorageObject{
+			Collection: o.Collection,
+			Key:        o.Key,
+			PermissionRead: func() *int {
+				return o.PermissionRead
+			}(),
+			PermissionWrite: func() *int {
+				return o.PermissionWrite
+			}(),
+			Value: func() map[string]interface{} {
+				if o.Value == nil {
+					return nil
+				}
+				var value map[string]interface{}
+				if err := json.Unmarshal([]byte(*o.Value), &value); err == nil {
+					return value
+				}
+				return nil
+			}(),
+			Version:    o.Version,
+			UserID:     o.UserID,
+			CreateTime: timeToStringPointer(*o.CreateTime, time.RFC3339),
+			UpdateTime: timeToStringPointer(*o.UpdateTime, time.RFC3339),
+		})
+	}
+
+	return result, nil
+}
+
+// Rpc executes an RPC function on the server.
+func (c *Client) Rpc(session *Session, id string, input map[string]interface{}) (*RpcResponse, error) {
+	if c.AutoRefreshSession && session.RefreshToken != "" &&
+		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
+		if _, err := c.SessionRefresh(session, nil); err != nil {
+			return nil, err
+		}
+	}
+
+	// Serialize the input to JSON
+	inputJson, err := json.Marshal(input)
+	if err != nil {
+		return nil, fmt.Errorf("failed to serialize input to JSON: %w", err)
+	}
+
+	// Execute the RPC function on the API client
+	apiResponse, err := c.ApiClient.RpcFunc(session.Token, id, string(inputJson), nil, make(map[string]string))
+	if err != nil {
+		return nil, err
+	}
+
+	// Build the response object
+	rpcResponse := &RpcResponse{
+		ID: *apiResponse.ID,
+		Payload: func() map[string]interface{} {
+			if apiResponse.Payload == nil {
+				return nil
+			}
+			var parsedPayload map[string]interface{}
+			if err := json.Unmarshal([]byte(*apiResponse.Payload), &parsedPayload); err == nil {
+				return parsedPayload
+			}
+			return nil
+		}(),
+	}
+
+	return rpcResponse, nil
+}
+
+// RpcHttpKey executes an RPC function on the server using an HTTP key.
+func (c *Client) RpcHttpKey(httpKey, id string, input map[string]interface{}) (*RpcResponse, error) {
+	// Serialize the input to JSON
+	var inputJson string
+	if input != nil {
+		jsonBytes, err := json.Marshal(input)
+		if err != nil {
+			return nil, fmt.Errorf("failed to serialize input to JSON: %w", err)
+		}
+		inputJson = string(jsonBytes)
+	}
+
+	// Execute the RPC function on the API client
+	apiResponse, err := c.ApiClient.RpcFunc2("", id, &inputJson, &httpKey, make(map[string]string))
+	if err != nil {
+		return nil, err
+	}
+
+	// Build the response object
+	rpcResponse := &RpcResponse{
+		ID: *apiResponse.ID,
+		Payload: func() map[string]interface{} {
+			if apiResponse.Payload == nil {
+				return nil
+			}
+			var parsedPayload map[string]interface{}
+			if err := json.Unmarshal([]byte(*apiResponse.Payload), &parsedPayload); err == nil {
+				return parsedPayload
+			}
+			return nil
+		}(),
+	}
+
+	return rpcResponse, nil
+}
+
+// SessionLogout logs out a session, invalidates a refresh token, or logs out all sessions/refresh tokens for a user.
+func (c *Client) SessionLogout(session *Session, token, refreshToken string) (bool, error) {
+	if c.AutoRefreshSession && session.RefreshToken != "" &&
+		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
+		if _, err := c.SessionRefresh(session, nil); err != nil {
+			return false, err
+		}
+	}
+
+	// Create request payload for logout
+	logoutRequest := ApiSessionLogoutRequest{
+		Token:        &token,
+		RefreshToken: &refreshToken,
+	}
+
+	// Call the API client's session logout function
+	response, err := c.ApiClient.SessionLogout(session.Token, logoutRequest, make(map[string]string))
+	if err != nil {
+		return false, err
+	}
+
+	return response != nil, nil
 }
 
 // SessionRefresh refreshes a user's session using a refresh token retrieved from a previous authentication request.
@@ -2220,4 +2315,251 @@ func (c *Client) SessionRefresh(session *Session, vars map[string]string) (*Sess
 
 	session.Update(*apiSession.Token, *apiSession.RefreshToken)
 	return session, nil
+}
+
+// UnlinkApple removes the Apple ID from the social profiles on the current user's account.
+func (c *Client) UnlinkApple(session *Session, request *ApiAccountApple) (bool, error) {
+	if c.AutoRefreshSession && session.RefreshToken != "" &&
+		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
+		if _, err := c.SessionRefresh(session, nil); err != nil {
+			return false, err
+		}
+	}
+
+	response, err := c.ApiClient.UnlinkApple(session.Token, *request, make(map[string]string))
+	if err != nil {
+		return false, err
+	}
+
+	return response != nil, nil
+}
+
+// UnlinkCustom removes a custom ID from the social profiles on the current user's account.
+func (c *Client) UnlinkCustom(session *Session, request *ApiAccountCustom) (bool, error) {
+	if c.AutoRefreshSession && session.RefreshToken != "" &&
+		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
+		if _, err := c.SessionRefresh(session, nil); err != nil {
+			return false, err
+		}
+	}
+
+	response, err := c.ApiClient.UnlinkCustom(session.Token, *request, make(map[string]string))
+	if err != nil {
+		return false, err
+	}
+
+	return response != nil, nil
+}
+
+// UnlinkDevice removes a device ID from the social profiles on the current user's account.
+func (c *Client) UnlinkDevice(session *Session, request *ApiAccountDevice) (bool, error) {
+	if c.AutoRefreshSession && session.RefreshToken != "" &&
+		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
+		if _, err := c.SessionRefresh(session, nil); err != nil {
+			return false, err
+		}
+	}
+
+	response, err := c.ApiClient.UnlinkDevice(session.Token, *request, make(map[string]string))
+	if err != nil {
+		return false, err
+	}
+
+	return response != nil, nil
+}
+
+// UnlinkEmail removes an email+password from the social profiles on the current user's account.
+func (c *Client) UnlinkEmail(session *Session, request *ApiAccountEmail) (bool, error) {
+	if c.AutoRefreshSession && session.RefreshToken != "" &&
+		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
+		if _, err := c.SessionRefresh(session, nil); err != nil {
+			return false, err
+		}
+	}
+
+	response, err := c.ApiClient.UnlinkEmail(session.Token, *request, make(map[string]string))
+	if err != nil {
+		return false, err
+	}
+
+	return response != nil, nil
+}
+
+// UnlinkFacebook removes the Facebook ID from the social profiles on the current user's account.
+func (c *Client) UnlinkFacebook(session *Session, request *ApiAccountFacebook) (bool, error) {
+	if c.AutoRefreshSession && session.RefreshToken != "" &&
+		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
+		if _, err := c.SessionRefresh(session, nil); err != nil {
+			return false, err
+		}
+	}
+
+	response, err := c.ApiClient.UnlinkFacebook(session.Token, *request, make(map[string]string))
+	if err != nil {
+		return false, err
+	}
+
+	return response != nil, nil
+}
+
+// UnlinkFacebookInstantGame removes Facebook Instant social profiles from the current user's account.
+func (c *Client) UnlinkFacebookInstantGame(session *Session, request *ApiAccountFacebookInstantGame) (bool, error) {
+	if c.AutoRefreshSession && session.RefreshToken != "" &&
+		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
+		if _, err := c.SessionRefresh(session, nil); err != nil {
+			return false, err
+		}
+	}
+
+	response, err := c.ApiClient.UnlinkFacebookInstantGame(session.Token, *request, make(map[string]string))
+	if err != nil {
+		return false, err
+	}
+
+	return response != nil, nil
+}
+
+// UnlinkGoogle removes the Google ID from the social profiles on the current user's account.
+func (c *Client) UnlinkGoogle(session *Session, request *ApiAccountGoogle) (bool, error) {
+	if c.AutoRefreshSession && session.RefreshToken != "" &&
+		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
+		if _, err := c.SessionRefresh(session, nil); err != nil {
+			return false, err
+		}
+	}
+
+	response, err := c.ApiClient.UnlinkGoogle(session.Token, *request, make(map[string]string))
+	if err != nil {
+		return false, err
+	}
+
+	return response != nil, nil
+}
+
+// UnlinkGameCenter removes GameCenter from the social profiles on the current user's account.
+func (c *Client) UnlinkGameCenter(session *Session, request *ApiAccountGameCenter) (bool, error) {
+	if c.AutoRefreshSession && session.RefreshToken != "" &&
+		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
+		if _, err := c.SessionRefresh(session, nil); err != nil {
+			return false, err
+		}
+	}
+
+	response, err := c.ApiClient.UnlinkGameCenter(session.Token, *request, make(map[string]string))
+	if err != nil {
+		return false, err
+	}
+
+	return response != nil, nil
+}
+
+// UnlinkSteam removes Steam from the social profiles on the current user's account.
+func (c *Client) UnlinkSteam(session *Session, request *ApiAccountSteam) (bool, error) {
+	if c.AutoRefreshSession && session.RefreshToken != "" &&
+		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
+		if _, err := c.SessionRefresh(session, nil); err != nil {
+			return false, err
+		}
+	}
+
+	response, err := c.ApiClient.UnlinkSteam(session.Token, *request, make(map[string]string))
+	if err != nil {
+		return false, err
+	}
+
+	return response != nil, nil
+}
+
+// UpdateAccount updates fields in the current user's account.
+func (c *Client) UpdateAccount(session *Session, request *ApiUpdateAccountRequest) (bool, error) {
+	if c.AutoRefreshSession && session.RefreshToken != "" &&
+		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
+		if _, err := c.SessionRefresh(session, nil); err != nil {
+			return false, err
+		}
+	}
+
+	response, err := c.ApiClient.UpdateAccount(session.Token, *request, make(map[string]string))
+	if err != nil {
+		return false, err
+	}
+
+	return response != nil, nil
+}
+
+// UpdateGroup updates a group the user is part of and has permissions to update.
+func (c *Client) UpdateGroup(session *Session, groupId string, request *ApiUpdateGroupRequest) (bool, error) {
+	if c.AutoRefreshSession && session.RefreshToken != "" &&
+		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
+		if _, err := c.SessionRefresh(session, nil); err != nil {
+			return false, err
+		}
+	}
+
+	response, err := c.ApiClient.UpdateGroup(session.Token, groupId, *request, make(map[string]string))
+	if err != nil {
+		return false, err
+	}
+
+	return response != nil, nil
+}
+
+// ValidatePurchaseApple validates an Apple IAP receipt.
+func (c *Client) ValidatePurchaseApple(session *Session, receipt *string, persist bool) (*ApiValidatePurchaseResponse, error) {
+	if c.AutoRefreshSession && session.RefreshToken != "" &&
+		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
+		if _, err := c.SessionRefresh(session, nil); err != nil {
+			return nil, err
+		}
+	}
+
+	response, err := c.ApiClient.ValidatePurchaseApple(session.Token, ApiValidatePurchaseAppleRequest{
+		Receipt: receipt,
+		Persist: &persist,
+	}, make(map[string]string))
+	if err != nil {
+		return nil, err
+	}
+
+	return response, nil
+}
+
+// ValidatePurchaseFacebookInstant validates a Facebook Instant IAP receipt.
+func (c *Client) ValidatePurchaseFacebookInstant(session *Session, signedRequest *string, persist bool) (*ApiValidatePurchaseResponse, error) {
+	if c.AutoRefreshSession && session.RefreshToken != "" &&
+		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
+		if _, err := c.SessionRefresh(session, nil); err != nil {
+			return nil, err
+		}
+	}
+
+	response, err := c.ApiClient.ValidatePurchaseFacebookInstant(session.Token, ApiValidatePurchaseFacebookInstantRequest{
+		SignedRequest: signedRequest,
+		Persist:       &persist,
+	}, make(map[string]string))
+	if err != nil {
+		return nil, err
+	}
+
+	return response, nil
+}
+
+// ValidatePurchaseGoogle validates a Google IAP receipt.
+func (c *Client) ValidatePurchaseGoogle(session *Session, purchase *string, persist bool) (*ApiValidatePurchaseResponse, error) {
+	if c.AutoRefreshSession && session.RefreshToken != "" &&
+		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
+		if _, err := c.SessionRefresh(session, nil); err != nil {
+			return nil, err
+		}
+	}
+
+	response, err := c.ApiClient.ValidatePurchaseGoogle(session.Token, ApiValidatePurchaseGoogleRequest{
+		Purchase: purchase,
+		Persist:  &persist,
+	}, make(map[string]string))
+	if err != nil {
+		return nil, err
+	}
+
+	return response, nil
 }

@@ -5131,7 +5131,7 @@ func (api *NakamaApi) ValidatePurchaseApple(
 	bearerToken string,
 	body ApiValidatePurchaseAppleRequest,
 	options map[string]string,
-) (any, error) {
+) (*ApiValidatePurchaseResponse, error) {
 	// Define the URL path
 	urlPath := "/v2/iap/purchase/apple"
 	queryParams := url.Values{}
@@ -5194,7 +5194,7 @@ func (api *NakamaApi) ValidatePurchaseApple(
 		if resp.StatusCode == http.StatusNoContent {
 			return nil, nil
 		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			var result any
+			var result *ApiValidatePurchaseResponse
 			bodyBytes, err := io.ReadAll(resp.Body)
 			if err != nil {
 				return nil, err
@@ -5215,7 +5215,7 @@ func (api *NakamaApi) ValidatePurchaseFacebookInstant(
 	bearerToken string,
 	body ApiValidatePurchaseFacebookInstantRequest,
 	options map[string]string,
-) (any, error) {
+) (*ApiValidatePurchaseResponse, error) {
 	// Validate the required parameter
 	if body == (ApiValidatePurchaseFacebookInstantRequest{}) {
 		return nil, errors.New("'body' is a required parameter but is null or undefined.")
@@ -5283,7 +5283,7 @@ func (api *NakamaApi) ValidatePurchaseFacebookInstant(
 		if resp.StatusCode == http.StatusNoContent {
 			return nil, nil
 		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			var result any
+			var result *ApiValidatePurchaseResponse
 			bodyBytes, err := io.ReadAll(resp.Body)
 			if err != nil {
 				return nil, err
@@ -5304,7 +5304,7 @@ func (api *NakamaApi) ValidatePurchaseGoogle(
 	bearerToken string,
 	body ApiValidatePurchaseGoogleRequest,
 	options map[string]string,
-) (any, error) {
+) (*ApiValidatePurchaseResponse, error) {
 	// Validate the required parameter
 	if body == (ApiValidatePurchaseGoogleRequest{}) {
 		return nil, errors.New("'body' is a required parameter but is null or undefined.")
@@ -5372,7 +5372,7 @@ func (api *NakamaApi) ValidatePurchaseGoogle(
 		if resp.StatusCode == http.StatusNoContent {
 			return nil, nil
 		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			var result any
+			var result *ApiValidatePurchaseResponse
 			bodyBytes, err := io.ReadAll(resp.Body)
 			if err != nil {
 				return nil, err
@@ -6684,7 +6684,7 @@ func (api *NakamaApi) SessionLogout(
 	bearerToken string,
 	body ApiSessionLogoutRequest,
 	options map[string]string,
-) (interface{}, error) {
+) (any, error) {
 	// Validate the required parameter 'body'
 	if body == (ApiSessionLogoutRequest{}) {
 		return nil, errors.New("'body' is a required parameter but is null or undefined")
