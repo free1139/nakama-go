@@ -563,6 +563,29 @@ func (socket *DefaultSocket) Send(message interface{}, sendTimeout int) error {
 	return nil
 }
 
+// CreateMatch sends a request to create a match and returns the created Match.
+func (socket *DefaultSocket) CreateMatch(name *string) (*Match, error) {
+	request := map[string]interface{}{
+		"match_create": map[string]interface{}{},
+	}
+
+	if name != nil {
+		request["match_create"].(map[string]interface{})["name"] = *name
+	}
+
+	var response map[string]interface{}
+	err := socket.Send(request, DefaultSendTimeoutMs)
+	if err != nil {
+		return nil, err
+	}
+
+	if match, ok := response["match"].(*Match); ok {
+		return match, nil
+	}
+
+	return nil, fmt.Errorf("invalid response format: missing or invalid match field")
+}
+
 // CreateParty Example methods for handling specific socket calls
 func (socket *DefaultSocket) CreateParty(open bool, maxSize int) (*Party, error) {
 	request := map[string]interface{}{
