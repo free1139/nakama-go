@@ -1,63 +1,50 @@
 package nakama
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/url"
 	"sync"
 
-	"github.com/gorilla/websocket"
+	"github.com/coder/websocket"
 )
 
-// WebSocketAdapter defines an interface for a websocket adapter.
-type WebSocketAdapter interface {
-	IsOpen() bool
-	Close()
-	Connect(scheme, host, port string, createStatus bool, token string) error
-	Send(message interface{}) error
-
-	// Event handlers
-	SetOnClose(handler func(evt error))
-	SetOnError(handler func(event error))
-	SetOnMessage(handler func(message []byte))
-	SetOnOpen(handler func(event interface{}))
-}
-
-// WebSocketAdapterText is a text-based WebSocket adapter for transmitting payloads over UTF-8.
-type WebSocketAdapterText struct {
+// WebSocketAdapter is a text-based WebSocket adapter for transmitting payloads over UTF-8.
+type WebSocketAdapter struct {
 	socket    *websocket.Conn
-	onClose   func(event error)
-	onError   func(event error)
+	onClose   func(err error)
+	onError   func(err error)
 	onMessage func(message []byte)
-	onOpen    func(event interface{})
+	onOpen    func(event interface{}) error
 	mu        sync.Mutex // To guard websocket connection reference
 }
 
-// NewWebSocketAdapterText creates a new instance of WebSocketAdapterText.
-func NewWebSocketAdapterText() *WebSocketAdapterText {
-	return &WebSocketAdapterText{}
+// NewWebSocketAdapterText creates a new instance of WebSocketAdapter.
+func NewWebSocketAdapterText() *WebSocketAdapter {
+	return &WebSocketAdapter{}
 }
 
 // IsOpen determines if the WebSocket connection is open.
-func (w *WebSocketAdapterText) IsOpen() bool {
+func (w *WebSocketAdapter) IsOpen() bool {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	return w.socket != nil && w.socket.CloseHandler() == nil
+	return w.socket != nil
 }
 
 // Close closes the WebSocket connection.
-func (w *WebSocketAdapterText) Close() {
+func (w *WebSocketAdapter) Close() {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if w.socket != nil {
-		_ = w.socket.Close()
+		_ = w.socket.Close(websocket.StatusNormalClosure, "Client closed connection")
 		w.socket = nil
 	}
 }
 
 // Connect connects to the WebSocket using the specified arguments.
-func (w *WebSocketAdapterText) Connect(scheme, host, port string, createStatus bool, token string) error {
+func (w *WebSocketAdapter) Connect(scheme, host, port string, createStatus bool, token string) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
@@ -70,13 +57,12 @@ func (w *WebSocketAdapterText) Connect(scheme, host, port string, createStatus b
 	)
 
 	var err error
-	w.socket, _, err = websocket.DefaultDialer.Dial(urlStr, nil)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	w.socket, _, err = websocket.Dial(ctx, urlStr, nil)
 	if err != nil {
 		return err
-	}
-
-	if w.onOpen != nil {
-		w.onOpen(nil)
 	}
 
 	go w.listen()
@@ -85,7 +71,7 @@ func (w *WebSocketAdapterText) Connect(scheme, host, port string, createStatus b
 }
 
 // Send sends a message through the WebSocket connection.
-func (w *WebSocketAdapterText) Send(message interface{}) error {
+func (w *WebSocketAdapter) Send(message interface{}) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
@@ -104,45 +90,26 @@ func (w *WebSocketAdapterText) Send(message interface{}) error {
 		return err
 	}
 
-	return w.socket.WriteMessage(websocket.TextMessage, msgBytes)
-}
-
-// SetOnClose sets the handler for WebSocket close events.
-func (w *WebSocketAdapterText) SetOnClose(handler func(event error)) {
-	w.onClose = handler
-}
-
-// SetOnError sets the handler for WebSocket error events.
-func (w *WebSocketAdapterText) SetOnError(handler func(event error)) {
-	w.onError = handler
-}
-
-// SetOnMessage sets the handler for WebSocket message events.
-func (w *WebSocketAdapterText) SetOnMessage(handler func(message []byte)) {
-	w.onMessage = handler
-}
-
-// SetOnOpen sets the handler for WebSocket open events.
-func (w *WebSocketAdapterText) SetOnOpen(handler func(event interface{})) {
-	w.onOpen = handler
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	return w.socket.Write(ctx, websocket.MessageText, msgBytes)
 }
 
 // listen listens for messages or errors from the WebSocket server.
-func (w *WebSocketAdapterText) listen() {
+func (w *WebSocketAdapter) listen() {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	for {
-		_, message, err := w.socket.ReadMessage()
+		_, message, err := w.socket.Read(ctx)
 		if err != nil {
 			w.mu.Lock()
 			socket := w.socket
 			w.mu.Unlock()
 
 			if socket != nil {
-				if w.onError != nil {
-					w.onError(err)
-				}
-				if websocket.IsUnexpectedCloseError(err) && w.onClose != nil {
-					w.onClose(nil)
-				}
+				closeStatus := websocket.CloseStatus(err)
+				fmt.Printf("WebSocket closed with status: %d\n", closeStatus)
+
 				w.Close()
 			}
 			break
@@ -150,9 +117,7 @@ func (w *WebSocketAdapterText) listen() {
 
 		var decodedMessage map[string]interface{}
 		if err := json.Unmarshal(message, &decodedMessage); err != nil {
-			if w.onError != nil {
-				w.onError(err)
-			}
+			fmt.Printf("Error unmarshalling WebSocket message: %v\n", err)
 			continue
 		}
 
@@ -160,13 +125,11 @@ func (w *WebSocketAdapterText) listen() {
 		decodeReceivedData(decodedMessage, "match_data")
 		decodeReceivedData(decodedMessage, "party_data")
 
-		if w.onMessage != nil {
-			messageBytes, err := json.Marshal(decodedMessage)
-			if err == nil {
-				w.onMessage(messageBytes)
-			} else if w.onError != nil {
-				w.onError(err)
-			}
+		messageBytes, err := json.Marshal(decodedMessage)
+		if err == nil {
+			w.onMessage(messageBytes)
+		} else if w.onError != nil {
+			w.onError(err)
 		}
 	}
 }

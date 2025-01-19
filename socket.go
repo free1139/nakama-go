@@ -350,6 +350,13 @@ type SocketError struct {
 	Message string `json:"message"` // A message in English to help developers debug the response
 }
 
+type Message struct {
+	Cid           *string         `json:"cid"`
+	Error         *error          `json:"error"`
+	Notifications *[]Notification `json:"notifications"`
+	Payload       interface{}     `json:"payload"`
+}
+
 // DefaultSocket constants
 const (
 	DefaultHeartbeatTimeoutMs = 10000
@@ -371,7 +378,7 @@ type DefaultSocket struct {
 }
 
 // NewDefaultSocket creates an instance of DefaultSocket.
-func NewDefaultSocket(host, port string, useSSL, verbose bool, adapter *WebSocketAdapterText, sendTimeoutMs *int) DefaultSocket {
+func NewDefaultSocket(host, port string, useSSL, verbose bool, adapter *WebSocketAdapter, sendTimeoutMs *int) DefaultSocket {
 	if adapter == nil {
 		adapter = NewWebSocketAdapterText()
 	}
@@ -385,7 +392,7 @@ func NewDefaultSocket(host, port string, useSSL, verbose bool, adapter *WebSocke
 		Port:               port,
 		UseSSL:             useSSL,
 		Verbose:            verbose,
-		Adapter:            adapter,
+		Adapter:            *adapter,
 		SendTimeoutMs:      *sendTimeoutMs,
 		HeartbeatTimeoutMs: DefaultHeartbeatTimeoutMs,
 		cIds:               make(map[string]*PromiseExecutor),
@@ -426,32 +433,80 @@ func (socket *DefaultSocket) Connect(session Session, createStatus *bool, timeou
 		return nil, err
 	}
 
-	socket.Adapter.SetOnClose(func(err error) {
+	socket.Adapter.onClose = func(err error) {
 		socket.OnDisconnect(err)
-	})
-	socket.Adapter.SetOnError(func(err error) {
+	}
+
+	socket.Adapter.onError = func(err error) {
 		socket.OnError(err)
-	})
-	socket.Adapter.SetOnMessage(func(message []byte) {
-		socket.HandleMessage(message)
-	})
+	}
 
-	// Set a timeout for the connection process
-	resChan := make(chan error, 1)
-	go func() {
-		time.Sleep(time.Duration(*timeoutMs) * time.Millisecond)
-		resChan <- errors.New("socket connection timed out")
-	}()
+	socket.Adapter.onMessage = func(message []byte) {
+		if socket.Verbose == true {
+			fmt.Println("Received message:", string(message))
+		}
 
-	select {
-	case err := <-resChan:
-		if err != nil {
-			socket.Adapter.Close()
-			return nil, err
+		var messageObject *Message
+		if err := json.Unmarshal(message, &messageObject); err != nil {
+			if socket.Verbose {
+				fmt.Println("Failed to unmarshal message into custom object:", err)
+			}
+			return
+		}
+
+		if messageObject == nil {
+			if socket.Verbose {
+				fmt.Println("Received empty message")
+			}
+		}
+
+		if messageObject.Cid == nil {
+			if messageObject.Notifications != nil {
+
+			}
+		} else {
+			executor := socket.cIds[*messageObject.Cid]
+			if executor == nil {
+				if socket.Verbose {
+					log.Printf("No promise executor for message: %v\n", messageObject)
+				}
+				return
+			}
+
+			delete(socket.cIds, *messageObject.Cid)
+
+			if messageObject.Error != nil {
+				executor.Reject(*messageObject.Error)
+			} else {
+				executor.Resolve(messageObject)
+			}
 		}
 	}
 
-	socket.pingPong()
+	go func() {
+		socket.Adapter.onOpen = func(event interface{}) error {
+			log.Printf("Socket opened: %v\n", event)
+
+			socket.pingPong()
+
+			// Set a timeout for the connection process
+			resChan := make(chan error, 1)
+			go func() {
+				time.Sleep(time.Duration(*timeoutMs) * time.Millisecond)
+				resChan <- errors.New("socket connection timed out")
+			}()
+
+			select {
+			case err := <-resChan:
+				if err != nil {
+					socket.Adapter.Close()
+					return err
+				}
+			}
+
+			return nil
+		}
+	}()
 
 	return &session, nil
 }
@@ -462,7 +517,7 @@ func (socket *DefaultSocket) Disconnect(fireDisconnectEvent bool) {
 		socket.Adapter.Close()
 	}
 	if fireDisconnectEvent {
-		socket.OnDisconnect(fmt.Errorf("Socket disconnected"))
+		socket.OnDisconnect(fmt.Errorf("socket disconnected"))
 	}
 }
 
@@ -523,14 +578,19 @@ func (socket *DefaultSocket) HandleMessage(message []byte) {
 }
 
 // Send sends a message to the WebSocket server with optional timeout.
-func (socket *DefaultSocket) Send(message interface{}, sendTimeout int) error {
+func (socket *DefaultSocket) Send(message interface{}, sendTimeout *int) error {
+	if sendTimeout == nil {
+		sendTimeout = new(int)
+		*sendTimeout = DefaultTimeoutMs
+	}
+
 	if !socket.Adapter.IsOpen() {
-		return errors.New("Socket connection is not established")
+		return errors.New("socket connection is not established")
 	}
 
 	data, err := json.Marshal(message)
 	if err != nil {
-		return fmt.Errorf("Failed to encode message: %v", err)
+		return fmt.Errorf("failed to encode message: %v", err)
 	}
 
 	cid := socket.GenerateCID()
@@ -547,11 +607,14 @@ func (socket *DefaultSocket) Send(message interface{}, sendTimeout int) error {
 		},
 	}
 
-	socket.Adapter.Send(data)
+	err = socket.Adapter.Send(data)
+	if err != nil {
+		return err
+	}
 
 	// Set a timeout for the send operation
 	go func(cid string) {
-		time.Sleep(time.Duration(sendTimeout) * time.Millisecond)
+		time.Sleep(time.Duration(*sendTimeout) * time.Millisecond)
 		delete(socket.cIds, cid)
 	}(cid)
 
@@ -560,18 +623,25 @@ func (socket *DefaultSocket) Send(message interface{}, sendTimeout int) error {
 
 // CreateMatch sends a request to create a match and returns the created Match.
 func (socket *DefaultSocket) CreateMatch(name *string) (*Match, error) {
-	request := map[string]interface{}{
-		"match_create": map[string]interface{}{},
-	}
-
-	if name != nil {
-		request["match_create"].(map[string]interface{})["name"] = *name
+	request := CreateMatch{
+		MatchCreate: struct {
+			Name string `json:"name,omitempty"`
+		}{Name: func() string {
+			if name != nil {
+				return *name
+			}
+			return ""
+		}()},
 	}
 
 	var response map[string]interface{}
-	err := socket.Send(request, DefaultSendTimeoutMs)
+	err := socket.Send(request, nil)
 	if err != nil {
 		return nil, err
+	}
+
+	if socket.Verbose {
+		fmt.Println("Response received:", response)
 	}
 
 	if match, ok := response["match"].(*Match); ok {
@@ -590,7 +660,7 @@ func (socket *DefaultSocket) CreateParty(open bool, maxSize int) (*Party, error)
 		},
 	}
 
-	err := socket.Send(request, DefaultSendTimeoutMs)
+	err := socket.Send(request, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -607,7 +677,7 @@ func (socket *DefaultSocket) FollowUsers(userIds []string) (*Status, error) {
 	}
 
 	var response map[string]interface{}
-	err := socket.Send(request, DefaultSendTimeoutMs)
+	err := socket.Send(request, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -631,7 +701,7 @@ func (socket *DefaultSocket) JoinChat(target string, chatType int, persistence, 
 	}
 
 	var response map[string]interface{}
-	err := socket.Send(request, DefaultSendTimeoutMs)
+	err := socket.Send(request, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -658,7 +728,7 @@ func (socket *DefaultSocket) JoinMatch(matchID, token *string, metadata *map[str
 	}
 
 	var response map[string]interface{}
-	err := socket.Send(request, DefaultSendTimeoutMs)
+	err := socket.Send(request, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -678,7 +748,7 @@ func (socket *DefaultSocket) JoinParty(partyID string) error {
 		},
 	}
 
-	if err := socket.Send(request, DefaultSendTimeoutMs); err != nil {
+	if err := socket.Send(request, nil); err != nil {
 		return err
 	}
 
@@ -693,7 +763,7 @@ func (socket *DefaultSocket) LeaveChat(channelID string) error {
 		},
 	}
 
-	if err := socket.Send(request, DefaultSendTimeoutMs); err != nil {
+	if err := socket.Send(request, nil); err != nil {
 		return err
 	}
 
@@ -708,7 +778,7 @@ func (socket *DefaultSocket) LeaveMatch(matchID string) error {
 		},
 	}
 
-	if err := socket.Send(request, DefaultSendTimeoutMs); err != nil {
+	if err := socket.Send(request, nil); err != nil {
 		return err
 	}
 
@@ -723,7 +793,7 @@ func (socket *DefaultSocket) LeaveParty(partyID string) error {
 		},
 	}
 
-	if err := socket.Send(request, DefaultSendTimeoutMs); err != nil {
+	if err := socket.Send(request, nil); err != nil {
 		return err
 	}
 
@@ -739,7 +809,7 @@ func (socket *DefaultSocket) ListPartyJoinRequests(partyID string) (*PartyJoinRe
 	}
 
 	var response map[string]interface{}
-	err := socket.Send(request, DefaultSendTimeoutMs)
+	err := socket.Send(request, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -761,7 +831,7 @@ func (socket *DefaultSocket) RemoveChatMessage(channelID, messageID string) (*Ch
 	}
 
 	var response map[string]interface{}
-	err := socket.Send(request, DefaultSendTimeoutMs)
+	err := socket.Send(request, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -783,7 +853,7 @@ func (socket *DefaultSocket) PromotePartyMember(partyID string, partyMember Pres
 	}
 
 	var response map[string]interface{}
-	err := socket.Send(request, DefaultSendTimeoutMs)
+	err := socket.Send(request, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -803,7 +873,7 @@ func (socket *DefaultSocket) RemoveMatchmaker(ticket string) error {
 		},
 	}
 
-	if err := socket.Send(request, DefaultSendTimeoutMs); err != nil {
+	if err := socket.Send(request, nil); err != nil {
 		return err
 	}
 
@@ -819,7 +889,7 @@ func (socket *DefaultSocket) RemoveMatchmakerParty(partyID, ticket string) error
 		},
 	}
 
-	if err := socket.Send(request, DefaultSendTimeoutMs); err != nil {
+	if err := socket.Send(request, nil); err != nil {
 		return err
 	}
 
@@ -835,7 +905,7 @@ func (socket *DefaultSocket) RemovePartyMember(partyID string, member Presence) 
 		},
 	}
 
-	if err := socket.Send(request, DefaultSendTimeoutMs); err != nil {
+	if err := socket.Send(request, nil); err != nil {
 		return err
 	}
 
@@ -853,7 +923,7 @@ func (socket *DefaultSocket) Rpc(id, payload, httpKey string) (*ApiRpc, error) {
 	}
 
 	var response map[string]interface{}
-	if err := socket.Send(request, DefaultSendTimeoutMs); err != nil {
+	if err := socket.Send(request, nil); err != nil {
 		return nil, err
 	}
 
@@ -876,7 +946,7 @@ func (socket *DefaultSocket) SendMatchState(matchID string, opCode int, data int
 		},
 	}
 
-	if err := socket.Send(request, DefaultSendTimeoutMs); err != nil {
+	if err := socket.Send(request, nil); err != nil {
 		return err
 	}
 
@@ -893,7 +963,7 @@ func (socket *DefaultSocket) SendPartyData(partyID string, opCode int, data inte
 		},
 	}
 
-	if err := socket.Send(request, DefaultSendTimeoutMs); err != nil {
+	if err := socket.Send(request, nil); err != nil {
 		return err
 	}
 
@@ -908,7 +978,7 @@ func (socket *DefaultSocket) UnfollowUsers(userIDs []string) error {
 		},
 	}
 
-	if err := socket.Send(request, DefaultSendTimeoutMs); err != nil {
+	if err := socket.Send(request, nil); err != nil {
 		return err
 	}
 
@@ -926,7 +996,7 @@ func (socket *DefaultSocket) UpdateChatMessage(channelID, messageID string, cont
 	}
 
 	var response map[string]interface{}
-	if err := socket.Send(request, DefaultSendTimeoutMs); err != nil {
+	if err := socket.Send(request, nil); err != nil {
 		return nil, err
 	}
 
@@ -945,7 +1015,7 @@ func (socket *DefaultSocket) UpdateStatus(status *string) error {
 		},
 	}
 
-	if err := socket.Send(request, DefaultSendTimeoutMs); err != nil {
+	if err := socket.Send(request, nil); err != nil {
 		return err
 	}
 
@@ -962,7 +1032,7 @@ func (socket *DefaultSocket) WriteChatMessage(channelID string, content interfac
 	}
 
 	var response map[string]interface{}
-	if err := socket.Send(request, DefaultSendTimeoutMs); err != nil {
+	if err := socket.Send(request, nil); err != nil {
 		return nil, err
 	}
 
@@ -977,12 +1047,14 @@ func (socket *DefaultSocket) WriteChatMessage(channelID string, content interfac
 func (socket *DefaultSocket) pingPong() {
 	ticker := time.NewTicker(time.Duration(socket.HeartbeatTimeoutMs) * time.Millisecond)
 	defer ticker.Stop()
+	log.Println("before pingpong socket is nil:", socket.Adapter.socket == nil)
 
 	for {
 		select {
 		case <-ticker.C:
 			ping := map[string]interface{}{"ping": struct{}{}}
-			if err := socket.Send(ping, socket.HeartbeatTimeoutMs); err != nil {
+			if err := socket.Send(ping, &socket.HeartbeatTimeoutMs); err != nil {
+				log.Println("after pingpong socket is nil:", socket.Adapter.socket == nil)
 				log.Println("Failed to send ping:", err)
 				if socket.Adapter.IsOpen() {
 					socket.OnHeartbeatTimeout()
