@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"time"
 )
 
@@ -337,16 +338,10 @@ type StatusUpdate struct {
 }
 
 // Socket defines the Go struct with corresponding methods.
-type Socket struct {
-	OnDisconnect       func(evt error)                `json:"-"`
-	OnError            func(evt error)                `json:"-"`
-	OnNotification     func(notification string)      `json:"-"`
-	OnMatchData        func(matchData MatchData)      `json:"-"`
-	OnParty            func(party Party)              `json:"-"`
-	OnPartyJoinRequest func(request PartyJoinRequest) `json:"-"`
-	OnStreamData       func(data StreamData)          `json:"-"`
-	OnHeartbeatTimeout func()                         `json:"-"`
-	HeartbeatTimeoutMs int                            `json:"-"`
+type Socket interface {
+	OnDisconnect(err error)
+	OnError(err error)
+	OnHeartbeatTimeout()
 }
 
 // SocketError represents an error received from a socket message.
@@ -376,7 +371,7 @@ type DefaultSocket struct {
 }
 
 // NewDefaultSocket creates an instance of DefaultSocket.
-func NewDefaultSocket(host, port string, useSSL, verbose bool, adapter WebSocketAdapter, sendTimeoutMs *int) DefaultSocket {
+func NewDefaultSocket(host, port string, useSSL, verbose bool, adapter *WebSocketAdapterText, sendTimeoutMs *int) DefaultSocket {
 	if adapter == nil {
 		adapter = NewWebSocketAdapterText()
 	}
@@ -431,11 +426,11 @@ func (socket *DefaultSocket) Connect(session Session, createStatus *bool, timeou
 		return nil, err
 	}
 
-	socket.Adapter.SetOnClose(func(evt error) {
-		socket.OnDisconnect(evt)
+	socket.Adapter.SetOnClose(func(err error) {
+		socket.OnDisconnect(err)
 	})
-	socket.Adapter.SetOnError(func(evt error) {
-		socket.OnError(evt)
+	socket.Adapter.SetOnError(func(err error) {
+		socket.OnError(err)
 	})
 	socket.Adapter.SetOnMessage(func(message []byte) {
 		socket.HandleMessage(message)
@@ -978,7 +973,7 @@ func (socket *DefaultSocket) WriteChatMessage(channelID string, content interfac
 	return nil, fmt.Errorf("invalid response format: missing or invalid channel_message_ack field")
 }
 
-// PingPong does a periodic ping-pong check with the server.
+// pingPong does a periodic ping-pong check with the server.
 func (socket *DefaultSocket) pingPong() {
 	ticker := time.NewTicker(time.Duration(socket.HeartbeatTimeoutMs) * time.Millisecond)
 	defer ticker.Stop()
@@ -988,6 +983,7 @@ func (socket *DefaultSocket) pingPong() {
 		case <-ticker.C:
 			ping := map[string]interface{}{"ping": struct{}{}}
 			if err := socket.Send(ping, socket.HeartbeatTimeoutMs); err != nil {
+				log.Println("Failed to send ping:", err)
 				if socket.Adapter.IsOpen() {
 					socket.OnHeartbeatTimeout()
 					socket.Adapter.Close()
