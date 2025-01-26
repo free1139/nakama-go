@@ -16,7 +16,21 @@ func setupSocket(t *testing.T) (Client, Session) {
 	return *client, *session
 }
 
-func TestCreateMatch(t *testing.T) {
+func TestCreateMatch_NoName(t *testing.T) {
+	client, session := setupSocket(t)
+
+	socket, connect := createSocket(t, client, session)
+	session = connect
+
+	//matchName := "Test"
+	match, err := socket.CreateMatch(nil)
+
+	assert.NoError(t, err)
+	assert.NotNil(t, match)
+	assert.IsType(t, &Match{}, match)
+}
+
+func TestCreateMatch_WithName(t *testing.T) {
 	client, session := setupSocket(t)
 
 	socket, connect := createSocket(t, client, session)

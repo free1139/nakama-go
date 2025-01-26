@@ -151,7 +151,7 @@ type Match struct {
 
 type CreateMatch struct {
 	MatchCreate struct {
-		Name string `json:"name,omitempty"`
+		Name *string `json:"name,omitempty"`
 	} `json:"match_create"`
 }
 
@@ -638,11 +638,10 @@ func (socket *DefaultSocket) Read() (map[string]interface{}, error) {
 
 // CreateMatch sends a request to create a match and returns the created Match.
 func (socket *DefaultSocket) CreateMatch(name *string) (*Match, error) {
-	request := map[string]interface{}{
-		"match_create": map[string]interface{}{},
-	}
-	if name != nil {
-		request["match_create"].(map[string]interface{})["name"] = name
+	request := CreateMatch{
+		MatchCreate: struct {
+			Name *string `json:"name,omitempty"`
+		}{Name: name},
 	}
 
 	err := socket.Send(request, nil)
