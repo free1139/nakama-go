@@ -1193,7 +1193,7 @@ func (api *NakamaApi) AuthenticateEmail(
 
 		// Handle HTTP response
 		if resp.StatusCode == http.StatusNoContent {
-			return nil, nil
+			return nil, errors.New("StatusNoContent")
 		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 			var result *ApiSession
 			bodyBytes, err := io.ReadAll(resp.Body)
