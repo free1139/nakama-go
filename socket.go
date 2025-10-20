@@ -2,10 +2,11 @@ package nakama
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log"
 	"time"
+
+	"github.com/gwaylib/errors"
 )
 
 type PromiseExecutor struct {
@@ -370,7 +371,7 @@ type DefaultSocket struct {
 	Port               string
 	UseSSL             bool
 	Verbose            bool
-	Adapter            WebSocketAdapter
+	Adapter            *WebSocketAdapter
 	SendTimeoutMs      int
 	HeartbeatTimeoutMs int
 	cIds               map[string]*PromiseExecutor
@@ -378,7 +379,7 @@ type DefaultSocket struct {
 }
 
 // NewDefaultSocket creates an instance of DefaultSocket.
-func NewDefaultSocket(host, port string, useSSL, verbose bool, adapter *WebSocketAdapter, sendTimeoutMs *int) DefaultSocket {
+func NewDefaultSocket(host, port string, useSSL, verbose bool, adapter *WebSocketAdapter, sendTimeoutMs *int) *DefaultSocket {
 	if adapter == nil {
 		adapter = NewWebSocketAdapterText()
 	}
@@ -387,12 +388,12 @@ func NewDefaultSocket(host, port string, useSSL, verbose bool, adapter *WebSocke
 		sendTimeoutMs = &defaultTimeout
 	}
 
-	return DefaultSocket{
+	return &DefaultSocket{
 		Host:               host,
 		Port:               port,
 		UseSSL:             useSSL,
 		Verbose:            verbose,
-		Adapter:            *adapter,
+		Adapter:            adapter,
 		SendTimeoutMs:      *sendTimeoutMs,
 		HeartbeatTimeoutMs: DefaultHeartbeatTimeoutMs,
 		cIds:               make(map[string]*PromiseExecutor),
@@ -408,7 +409,7 @@ func (socket *DefaultSocket) GenerateCID() string {
 }
 
 // Connect establishes the WebSocket connection with optional timeouts.
-func (socket *DefaultSocket) Connect(session Session, createStatus *bool, timeoutMs *int) (*Session, error) {
+func (socket *DefaultSocket) Connect(session *Session, createStatus *bool, timeoutMs *int) error {
 	if createStatus == nil {
 		defaultStatus := false
 		createStatus = &defaultStatus
@@ -420,7 +421,7 @@ func (socket *DefaultSocket) Connect(session Session, createStatus *bool, timeou
 	}
 
 	if socket.Adapter.IsOpen() {
-		return &session, nil
+		return nil
 	}
 
 	scheme := "ws://"
@@ -428,12 +429,11 @@ func (socket *DefaultSocket) Connect(session Session, createStatus *bool, timeou
 		scheme = "wss://"
 	}
 	if !checkStr(session.Token) {
-		return nil, errors.New("Invalid token")
+		return errors.New("Invalid token")
 	}
 
-	err := socket.Adapter.Connect(scheme, socket.Host, socket.Port, *createStatus, *session.Token)
-	if err != nil {
-		return nil, err
+	if err := socket.Adapter.Connect(scheme, socket.Host, socket.Port, *createStatus, *session.Token); err != nil {
+		return errors.As(err)
 	}
 
 	socket.Adapter.onClose = func(err error) {
@@ -510,8 +510,8 @@ func (socket *DefaultSocket) Connect(session Session, createStatus *bool, timeou
 			return nil
 		}
 	}()
+	return nil
 
-	return &session, nil
 }
 
 // Disconnect terminates the WebSocket connection.
