@@ -16,12 +16,12 @@ type ISession interface {
 
 // Session implements the ISession interface.
 type Session struct {
-	Token            string
-	Created          bool
-	CreatedAt        int64
+	Token            *string
+	Created          *bool
+	CreatedAt        *int64
 	ExpiresAt        *int64
 	RefreshExpiresAt *int64
-	RefreshToken     string
+	RefreshToken     *string
 	Username         *string
 	UserID           *string
 	Vars             map[string]interface{}
@@ -29,11 +29,12 @@ type Session struct {
 
 // NewSession creates a new Session.
 func NewSession(token, refreshToken string, created bool) *Session {
+	unixTime := time.Now().Unix()
 	session := &Session{
-		Token:        token,
-		RefreshToken: refreshToken,
-		Created:      created,
-		CreatedAt:    time.Now().Unix(),
+		Token:        &token,
+		RefreshToken: &refreshToken,
+		Created:      &created,
+		CreatedAt:    &unixTime,
 	}
 	session.Update(token, refreshToken)
 	return session
@@ -68,7 +69,7 @@ func (s *Session) Update(token, refreshToken string) error {
 	}
 	s.ExpiresAt = &exp
 
-	s.Token = token
+	s.Token = &token
 	if username, ok := tokenDecoded["usn"].(string); ok {
 		s.Username = &username
 	}
@@ -91,7 +92,7 @@ func (s *Session) Update(token, refreshToken string) error {
 			return err
 		}
 		s.RefreshExpiresAt = &refreshExp
-		s.RefreshToken = refreshToken
+		s.RefreshToken = &refreshToken
 	}
 
 	return nil

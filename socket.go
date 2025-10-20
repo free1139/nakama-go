@@ -427,8 +427,11 @@ func (socket *DefaultSocket) Connect(session Session, createStatus *bool, timeou
 	if socket.UseSSL {
 		scheme = "wss://"
 	}
+	if !checkStr(session.Token) {
+		return nil, errors.New("Invalid token")
+	}
 
-	err := socket.Adapter.Connect(scheme, socket.Host, socket.Port, *createStatus, session.Token)
+	err := socket.Adapter.Connect(scheme, socket.Host, socket.Port, *createStatus, *session.Token)
 	if err != nil {
 		return nil, err
 	}
