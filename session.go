@@ -27,6 +27,14 @@ type Session struct {
 	Vars             map[string]interface{}
 }
 
+func (s *Session) ToJson() string {
+	result, err := json.Marshal(s)
+	if err != nil {
+		panic(err)
+	}
+	return string(result)
+}
+
 // NewSession creates a new Session.
 func NewSession(token, refreshToken string, created bool) *Session {
 	unixTime := time.Now().Unix()

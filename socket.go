@@ -1,6 +1,8 @@
 package nakama
 
 import (
+	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"sync"
@@ -26,7 +28,7 @@ const (
 type Cid string
 
 type RspResult struct {
-	Parsed  jsonp.Params // try parse, maybe nil
+	Decoded jsonp.Params // try parse, maybe nil
 	Message []byte       // origin data
 }
 
@@ -484,15 +486,15 @@ func (socket *DefaultSocket) Connect(session *Session, createStatus *bool, timeo
 
 	socket.Adapter.onError = socket.onError
 
-	socket.Adapter.onMessage = func(message []byte) {
-		if err := socket.handleMessage(message, userHandle); err != nil {
+	socket.Adapter.onMessage = func(mType int, message []byte) {
+		if err := socket.handleMessage(mType, message, userHandle); err != nil {
 			log.Warn(errors.As(err))
 		}
 	}
 
 	socket.Adapter.onOpen = func(event interface{}) error {
 		log.Printf("Socket opened: %v\n", event)
-		go socket.pingPong()
+		go socket.pingPong(context.TODO())
 		return nil
 	}
 
@@ -543,18 +545,62 @@ func (socket *DefaultSocket) onError(evt error) {
 	// TODO: try reconnect
 }
 
+// handleEncodedData handles encoding of match_data_send and party_data_send fields.
+func handleEncodedData(msg map[string]interface{}, field string) {
+	if sendData, exists := msg[field]; exists {
+		if sendMap, ok := sendData.(map[string]interface{}); ok {
+			// Convert op_code to string
+			if opCode, ok := sendMap["op_code"]; ok {
+				sendMap["op_code"] = fmt.Sprintf("%v", opCode)
+			}
+
+			// Encode data
+			if payload, exists := sendMap["data"]; exists {
+				switch v := payload.(type) {
+				case []byte:
+					sendMap["data"] = base64.StdEncoding.EncodeToString(v)
+				case string:
+					sendMap["data"] = base64.StdEncoding.EncodeToString([]byte(v))
+				}
+			}
+		}
+	}
+}
+
+// decodeReceivedData decodes the match_data and party_data fields in messages received from the server.
+func decodeReceivedData(msg map[string]interface{}, field string) {
+	if data, exists := msg[field]; exists {
+		if dataMap, ok := data.(map[string]interface{}); ok {
+			if encoded, exists := dataMap["data"]; exists {
+				if encodedStr, ok := encoded.(string); ok {
+					decodedBytes, err := base64.StdEncoding.DecodeString(encodedStr)
+					if err == nil {
+						dataMap["data"] = decodedBytes
+					}
+				}
+			}
+		}
+	}
+}
+
 // HandleMessage processes incoming WebSocket messages.
-func (socket *DefaultSocket) handleMessage(message []byte, handle func(*RspResult) bool) error {
+func (socket *DefaultSocket) handleMessage(mType int, message []byte, handle func(*RspResult) bool) error {
+	//log.Debugf("message_type:%d, message:%s", mType, string(message))
+
 	result := &RspResult{Message: message}
 	// try find the request cid
-	msg, err := jsonp.ParseParams(message)
+	decoded, err := jsonp.ParseParams(message)
 	if err != nil {
 		handle(result)
 		return nil
 	}
-	result.Parsed = msg
+	result.Decoded = decoded
 
-	cid := msg.String("cid")
+	// Handle specific decoding logic for match_data and party_data
+	decodeReceivedData(decoded, "match_data")
+	decodeReceivedData(decoded, "party_data")
+
+	cid := decoded.String("cid")
 	if len(cid) > 0 {
 		rsp, ok := socket.cIds.Load(cid)
 		if ok {
@@ -563,7 +609,7 @@ func (socket *DefaultSocket) handleMessage(message []byte, handle func(*RspResul
 		}
 	}
 
-	if val := msg.Any(_msg_key_match); val != nil {
+	if val := decoded.Any(_msg_key_match); val != nil {
 		rsp, exists := socket.cIds.Load(_msg_key_match)
 		if exists {
 			rsp.(chan any) <- result
@@ -571,28 +617,28 @@ func (socket *DefaultSocket) handleMessage(message []byte, handle func(*RspResul
 		}
 	}
 
-	if val := msg.Any(_msg_key_channel); val != nil {
+	if val := decoded.Any(_msg_key_channel); val != nil {
 		rsp, exists := socket.cIds.Load(_msg_key_channel)
 		if exists {
 			rsp.(chan any) <- result
 			return nil
 		}
 	}
-	if val := msg.Any(_msg_key_party_join_request); val != nil {
+	if val := decoded.Any(_msg_key_party_join_request); val != nil {
 		rsp, exists := socket.cIds.Load(_msg_key_party_join_request)
 		if exists {
 			rsp.(chan any) <- result
 			return nil
 		}
 	}
-	if val := msg.Any(_msg_key_channel_message_ack); val != nil {
+	if val := decoded.Any(_msg_key_channel_message_ack); val != nil {
 		rsp, exists := socket.cIds.Load(_msg_key_channel_message_ack)
 		if exists {
 			rsp.(chan any) <- result
 			return nil
 		}
 	}
-	if val := msg.Any(_msg_key_party_leader); val != nil {
+	if val := decoded.Any(_msg_key_party_leader); val != nil {
 		rsp, exists := socket.cIds.Load(_msg_key_channel_message_ack)
 		if exists {
 			rsp.(chan any) <- result
@@ -617,13 +663,18 @@ func (socket *DefaultSocket) Send(mainKey, methodKey string, message map[string]
 	defer close(rsp)
 
 	cid := socket.GenerateCID()
-	message["cid"] = cid
+	message["cid"] = cid // write a seq number
 
 	socket.cIds.Store(cid, rsp)
 	defer socket.cIds.Delete(cid)
-
 	socket.cIds.Store(mainKey, rsp)
 	defer socket.cIds.Delete(mainKey)
+
+	//// Handle specific cases of match_data_send and party_data_send
+	//if msgMap, ok := message.(map[string]interface{}); ok {
+	//	handleEncodedData(msgMap, "match_data_send")
+	//	handleEncodedData(msgMap, "party_data_send")
+	//}
 
 	if err := socket.Adapter.Send(message); err != nil {
 		return errors.As(err)
@@ -1056,6 +1107,7 @@ func (socket *DefaultSocket) UpdateStatus(status *string) error {
 
 // WriteChatMessage sends a chat message and returns the ChannelMessageAck.
 func (socket *DefaultSocket) WriteChatMessage(channelID string, content interface{}) (*ChannelMessageAck, error) {
+	// const response = await this.send({channel_message_send: {channel_id: channel_id, content: content}});
 	request := map[string]interface{}{
 		"channel_message_send": map[string]interface{}{
 			"channel_id": channelID,
@@ -1076,7 +1128,7 @@ func (socket *DefaultSocket) WriteChatMessage(channelID string, content interfac
 }
 
 // pingPong does a periodic ping-pong check with the server.
-func (socket *DefaultSocket) pingPong() {
+func (socket *DefaultSocket) pingPong(ctx context.Context) {
 	ticker := time.NewTicker(time.Duration(socket.HeartbeatTimeoutMs) * time.Millisecond)
 	defer ticker.Stop()
 	log.Println("before pingpong socket is nil:", socket.Adapter.socket == nil)
@@ -1095,6 +1147,8 @@ func (socket *DefaultSocket) pingPong() {
 				}
 				return
 			}
+		case <-ctx.Done():
+			return
 		}
 	}
 }
