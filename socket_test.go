@@ -6,21 +6,23 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func setupSocket(t *testing.T) (Client, Session) {
+func setupSocket(t *testing.T) (*Client, *Session) {
 	client := NewClient("defaultkey", "127.0.0.1", "7350", false, nil, nil)
 
 	deviceId := "376C007D-260F-579B-BD75-A3CBBFC2EF99"
 	create := true
-	session, _ := client.AuthenticateDevice(deviceId, &create, nil, nil)
+	session, err := client.AuthenticateDevice(deviceId, &create, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 
-	return *client, *session
+	return client, session
 }
 
 func TestCreateMatch_NoName(t *testing.T) {
 	client, session := setupSocket(t)
 
-	socket, connect := createSocket(t, client, session)
-	session = connect
+	socket := createSocket(t, client, session)
 
 	//matchName := "Test"
 	match, err := socket.CreateMatch(nil)
@@ -33,8 +35,7 @@ func TestCreateMatch_NoName(t *testing.T) {
 func TestCreateMatch_WithName(t *testing.T) {
 	client, session := setupSocket(t)
 
-	socket, connect := createSocket(t, client, session)
-	session = connect
+	socket := createSocket(t, client, session)
 
 	matchName := "Test"
 	match, err := socket.CreateMatch(&matchName)
@@ -44,17 +45,14 @@ func TestCreateMatch_WithName(t *testing.T) {
 	assert.IsType(t, &Match{}, match)
 }
 
-func createSocket(t *testing.T, client Client, session Session) (DefaultSocket, Session) {
+func createSocket(t *testing.T, client *Client, session *Session) *DefaultSocket {
 	timeout := 1000
 	socket := client.CreateSocket(false, true, nil, &timeout)
 
 	assert.IsType(t, DefaultSocket{}, socket)
 
-	connect, err := socket.Connect(session, nil, &timeout)
-
+	err := socket.Connect(session, nil, &timeout, nil)
 	assert.NoError(t, err)
-	assert.NotNil(t, connect)
-	assert.IsType(t, &Session{}, connect)
 
-	return socket, *connect
+	return socket
 }

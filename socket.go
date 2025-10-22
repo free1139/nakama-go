@@ -1,346 +1,28 @@
 package nakama
 
 import (
-	"encoding/json"
-	"errors"
+	"context"
+	"encoding/base64"
 	"fmt"
-	"log"
+	"sync"
+	"sync/atomic"
 	"time"
+
+	"github.com/gwaylib/errors"
+	"github.com/gwaylib/log"
+	api "github.com/heroiclabs/nakama-common/api"
+	"github.com/heroiclabs/nakama-common/rtapi"
+	"google.golang.org/protobuf/encoding/protojson"
+	wrapperspb "google.golang.org/protobuf/types/known/wrapperspb"
 )
 
-type PromiseExecutor struct {
-	Resolve func(value interface{})
-	Reject  func(reason error)
-}
-
-type Presence struct {
-	UserID    string `json:"user_id"`
-	SessionID string `json:"session_id"`
-	Username  string `json:"username"`
-	Node      string `json:"node"`
-}
-
-type Channel struct {
-	ID        string     `json:"id"`
-	Presences []Presence `json:"presences"`
-	Self      Presence   `json:"self"`
-}
-
-type ChannelJoin struct {
-	ChannelJoin struct {
-		Target      string `json:"target"`
-		Type        int    `json:"type"`
-		Persistence bool   `json:"persistence"`
-		Hidden      bool   `json:"hidden"`
-	} `json:"channel_join"`
-}
-
-type ChannelLeave struct {
-	ChannelLeave struct {
-		ChannelID string `json:"channel_id"`
-	} `json:"channel_leave"`
-}
-
-type ChannelMessageAck struct {
-	ChannelID   string `json:"channel_id"`
-	MessageID   string `json:"message_id"`
-	Code        int    `json:"code"`
-	Username    string `json:"username"`
-	CreateTime  string `json:"create_time"`
-	UpdateTime  string `json:"update_time"`
-	Persistence bool   `json:"persistence"`
-}
-
-type ChannelMessageSend struct {
-	ChannelMessageSend struct {
-		ChannelID string      `json:"channel_id"`
-		Content   interface{} `json:"content"`
-	} `json:"channel_message_send"`
-}
-
-type ChannelMessageUpdate struct {
-	ChannelMessageUpdate struct {
-		ChannelID string      `json:"channel_id"`
-		MessageID string      `json:"message_id"`
-		Content   interface{} `json:"content"`
-	} `json:"channel_message_update"`
-}
-
-type ChannelMessageRemove struct {
-	ChannelMessageRemove struct {
-		ChannelID string `json:"channel_id"`
-		MessageID string `json:"message_id"`
-	} `json:"channel_message_remove"`
-}
-
-type ChannelPresenceEvent struct {
-	ChannelID string     `json:"channel_id"`
-	Joins     []Presence `json:"joins"`
-	Leaves    []Presence `json:"leaves"`
-}
-
-type StreamId struct {
-	Mode       int    `json:"mode"`
-	Subject    string `json:"subject"`
-	Subcontext string `json:"subcontext"`
-	Label      string `json:"label"`
-}
-
-type StreamData struct {
-	Stream   StreamId  `json:"stream"`
-	Sender   *Presence `json:"sender,omitempty"`
-	Data     string    `json:"data"`
-	Reliable *bool     `json:"reliable,omitempty"`
-}
-
-type StreamPresenceEvent struct {
-	Stream StreamId   `json:"stream"`
-	Joins  []Presence `json:"joins"`
-	Leaves []Presence `json:"leaves"`
-}
-
-type MatchPresenceEvent struct {
-	MatchID string     `json:"match_id"`
-	Joins   []Presence `json:"joins"`
-	Leaves  []Presence `json:"leaves"`
-}
-
-type MatchmakerAdd struct {
-	MatchmakerAdd struct {
-		MinCount          int                `json:"min_count"`
-		MaxCount          int                `json:"max_count"`
-		Query             string             `json:"query"`
-		StringProperties  map[string]string  `json:"string_properties,omitempty"`
-		NumericProperties map[string]float64 `json:"numeric_properties,omitempty"`
-	} `json:"matchmaker_add"`
-}
-
-type MatchmakerTicket struct {
-	Ticket string `json:"ticket"`
-}
-
-type MatchmakerRemove struct {
-	MatchmakerRemove struct {
-		Ticket string `json:"ticket"`
-	} `json:"matchmaker_remove"`
-}
-
-type MatchmakerUser struct {
-	Presence          Presence           `json:"presence"`
-	PartyID           string             `json:"party_id"`
-	StringProperties  map[string]string  `json:"string_properties,omitempty"`
-	NumericProperties map[string]float64 `json:"numeric_properties,omitempty"`
-}
-
-type MatchmakerMatched struct {
-	Ticket  string           `json:"ticket"`
-	MatchID string           `json:"match_id"`
-	Token   string           `json:"token"`
-	Users   []MatchmakerUser `json:"users"`
-	Self    MatchmakerUser   `json:"self"`
-}
-
-type Match struct {
-	MatchID       string     `json:"match_id"`
-	Authoritative bool       `json:"authoritative"`
-	Label         *string    `json:"label,omitempty"`
-	Size          int        `json:"size"`
-	Presences     []Presence `json:"presences"`
-	Self          Presence   `json:"self"`
-}
-
-type CreateMatch struct {
-	MatchCreate struct {
-		Name *string `json:"name,omitempty"`
-	} `json:"match_create"`
-}
-
-type JoinMatch struct {
-	MatchJoin struct {
-		MatchID  *string                `json:"match_id,omitempty"`
-		Token    *string                `json:"token,omitempty"`
-		Metadata map[string]interface{} `json:"metadata,omitempty"`
-	} `json:"match_join"`
-}
-
-type LeaveMatch struct {
-	MatchLeave struct {
-		MatchID string `json:"match_id"`
-	} `json:"match_leave"`
-}
-
-type MatchData struct {
-	MatchID  string    `json:"match_id"`
-	OpCode   int       `json:"op_code"`
-	Data     []byte    `json:"data"`
-	Presence *Presence `json:"presence,omitempty"`
-	Reliable *bool     `json:"reliable,omitempty"`
-}
-
-type MatchDataSend struct {
-	MatchDataSend struct {
-		MatchID   string      `json:"match_id"`
-		OpCode    int         `json:"op_code"`
-		Data      interface{} `json:"data"`
-		Presences []Presence  `json:"presences"`
-		Reliable  *bool       `json:"reliable,omitempty"`
-	} `json:"match_data_send"`
-}
-
-type Party struct {
-	PartyID   string     `json:"party_id"`
-	Open      bool       `json:"open"`
-	MaxSize   int        `json:"max_size"`
-	Self      Presence   `json:"self"`
-	Leader    Presence   `json:"leader"`
-	Presences []Presence `json:"presences"`
-}
-
-type PartyCreate struct {
-	PartyCreate struct {
-		Open    bool `json:"open"`
-		MaxSize int  `json:"max_size"`
-	} `json:"party_create"`
-}
-
-type PartyJoin struct {
-	PartyJoin struct {
-		PartyID string `json:"party_id"`
-	} `json:"party_join"`
-}
-
-type PartyLeave struct {
-	PartyLeave struct {
-		PartyID string `json:"party_id"`
-	} `json:"party_leave"`
-}
-
-type PartyPromote struct {
-	PartyPromote struct {
-		PartyID  string   `json:"party_id"`
-		Presence Presence `json:"presence"`
-	} `json:"party_promote"`
-}
-
-type PartyLeader struct {
-	PartyID  string   `json:"party_id"`
-	Presence Presence `json:"presence"`
-}
-
-type PartyAccept struct {
-	PartyAccept struct {
-		PartyID  string   `json:"party_id"`
-		Presence Presence `json:"presence"`
-	} `json:"party_accept"`
-}
-
-type PartyClose struct {
-	PartyClose struct {
-		PartyID string `json:"party_id"`
-	} `json:"party_close"`
-}
-
-type PartyData struct {
-	PartyID  string   `json:"party_id"`
-	Presence Presence `json:"presence"`
-	OpCode   int      `json:"op_code"`
-	Data     []byte   `json:"data"`
-}
-
-type PartyDataSend struct {
-	PartyDataSend struct {
-		PartyID string      `json:"party_id"`
-		OpCode  int         `json:"op_code"`
-		Data    interface{} `json:"data"`
-	} `json:"party_data_send"`
-}
-
-type PartyJoinRequest struct {
-	PartyID   string     `json:"party_id"`
-	Presences []Presence `json:"presences"`
-}
-
-type PartyJoinRequestList struct {
-	PartyJoinRequestList struct {
-		PartyID string `json:"party_id"`
-	} `json:"party_join_request_list"`
-}
-
-type PartyMatchmakerAdd struct {
-	PartyMatchmakerAdd struct {
-		PartyID           string             `json:"party_id"`
-		MinCount          int                `json:"min_count"`
-		MaxCount          int                `json:"max_count"`
-		Query             string             `json:"query"`
-		StringProperties  map[string]string  `json:"string_properties,omitempty"`
-		NumericProperties map[string]float64 `json:"numeric_properties,omitempty"`
-	} `json:"party_matchmaker_add"`
-}
-
-type PartyMatchmakerRemove struct {
-	PartyMatchmakerRemove struct {
-		PartyID string `json:"party_id"`
-		Ticket  string `json:"ticket"`
-	} `json:"party_matchmaker_remove"`
-}
-
-type PartyMatchmakerTicket struct {
-	PartyID string `json:"party_id"`
-	Ticket  string `json:"ticket"`
-}
-
-type PartyPresenceEvent struct {
-	PartyID string     `json:"party_id"`
-	Joins   []Presence `json:"joins"`
-	Leaves  []Presence `json:"leaves"`
-}
-
-type PartyRemove struct {
-	PartyRemove struct {
-		PartyID  string   `json:"party_id"`
-		Presence Presence `json:"presence"`
-	} `json:"party_remove"`
-}
-
-type Rpc struct {
-	Rpc ApiRpc `json:"rpc"`
-}
-
-type Ping struct {
-	// No fields needed for Ping
-}
-
-type Status struct {
-	Presences []Presence `json:"presences"`
-}
-
-type StatusFollow struct {
-	StatusFollow struct {
-		UserIDs []string `json:"user_ids"`
-	} `json:"status_follow"`
-}
-
-type StatusPresenceEvent struct {
-	Joins  []Presence `json:"joins"`
-	Leaves []Presence `json:"leaves"`
-}
-
-type StatusUnfollow struct {
-	StatusUnfollow struct {
-		UserIDs []string `json:"user_ids"`
-	} `json:"status_unfollow"`
-}
-
-type StatusUpdate struct {
-	StatusUpdate struct {
-		Status *string `json:"status,omitempty"`
-	} `json:"status_update"`
+type RspResult struct {
+	Decoded *rtapi.Envelope // try parse, maybe nil
+	Message []byte          // origin data
 }
 
 // Socket defines the Go struct with corresponding methods.
 type Socket interface {
-	OnDisconnect(err error)
-	OnError(err error)
 	OnHeartbeatTimeout()
 }
 
@@ -370,15 +52,18 @@ type DefaultSocket struct {
 	Port               string
 	UseSSL             bool
 	Verbose            bool
-	Adapter            WebSocketAdapter
+	Adapter            *WebSocketAdapter
 	SendTimeoutMs      int
 	HeartbeatTimeoutMs int
-	cIds               map[string]*PromiseExecutor
+	cIds               sync.Map // string:chan any
 	nextCid            int
+
+	userClosed     atomic.Bool
+	reconnectTimes atomic.Int32
 }
 
 // NewDefaultSocket creates an instance of DefaultSocket.
-func NewDefaultSocket(host, port string, useSSL, verbose bool, adapter *WebSocketAdapter, sendTimeoutMs *int) DefaultSocket {
+func NewDefaultSocket(host, port string, useSSL, verbose bool, adapter *WebSocketAdapter, sendTimeoutMs *int) *DefaultSocket {
 	if adapter == nil {
 		adapter = NewWebSocketAdapterText()
 	}
@@ -387,15 +72,15 @@ func NewDefaultSocket(host, port string, useSSL, verbose bool, adapter *WebSocke
 		sendTimeoutMs = &defaultTimeout
 	}
 
-	return DefaultSocket{
+	return &DefaultSocket{
 		Host:               host,
 		Port:               port,
 		UseSSL:             useSSL,
 		Verbose:            verbose,
-		Adapter:            *adapter,
+		Adapter:            adapter,
 		SendTimeoutMs:      *sendTimeoutMs,
 		HeartbeatTimeoutMs: DefaultHeartbeatTimeoutMs,
-		cIds:               make(map[string]*PromiseExecutor),
+		cIds:               sync.Map{},
 		nextCid:            1,
 	}
 }
@@ -408,7 +93,7 @@ func (socket *DefaultSocket) GenerateCID() string {
 }
 
 // Connect establishes the WebSocket connection with optional timeouts.
-func (socket *DefaultSocket) Connect(session Session, createStatus *bool, timeoutMs *int) (*Session, error) {
+func (socket *DefaultSocket) Connect(session *Session, createStatus *bool, timeoutMs *int, userHandle func(*RspResult) bool) error {
 	if createStatus == nil {
 		defaultStatus := false
 		createStatus = &defaultStatus
@@ -419,105 +104,46 @@ func (socket *DefaultSocket) Connect(session Session, createStatus *bool, timeou
 		timeoutMs = &defaultTimeout
 	}
 
-	if socket.Adapter.IsOpen() {
-		return &session, nil
-	}
-
 	scheme := "ws://"
 	if socket.UseSSL {
 		scheme = "wss://"
 	}
-
-	err := socket.Adapter.Connect(scheme, socket.Host, socket.Port, *createStatus, session.Token)
-	if err != nil {
-		return nil, err
+	if !checkStr(session.Token) {
+		return errors.New("Invalid token")
 	}
 
-	socket.Adapter.onClose = func(err error) {
-		socket.OnDisconnect(err)
+	if err := socket.Adapter.Connect(scheme, socket.Host, socket.Port, *createStatus, *session.Token); err != nil {
+		return errors.As(err)
 	}
 
-	socket.Adapter.onError = func(err error) {
-		socket.OnError(err)
-	}
+	socket.Adapter.onClose = socket.onDisconnect
 
-	socket.Adapter.onMessage = func(message []byte) {
-		if socket.Verbose == true {
-			fmt.Println("Received message:", string(message))
-		}
+	socket.Adapter.onError = socket.onError
 
-		var messageObject *Message
-		if err := json.Unmarshal(message, &messageObject); err != nil {
-			if socket.Verbose {
-				fmt.Println("Failed to unmarshal message into custom object:", err)
-			}
-			return
-		}
-
-		if messageObject == nil {
-			if socket.Verbose {
-				fmt.Println("Received empty message")
-			}
-		}
-
-		if messageObject.Cid == nil {
-			if messageObject.Notifications != nil {
-
-			}
-		} else {
-			executor := socket.cIds[*messageObject.Cid]
-			if executor == nil {
-				if socket.Verbose {
-					log.Printf("No promise executor for message: %v\n", messageObject)
-				}
-				return
-			}
-
-			delete(socket.cIds, *messageObject.Cid)
-
-			if messageObject.Error != nil {
-				executor.Reject(*messageObject.Error)
-			} else {
-				executor.Resolve(messageObject)
-			}
+	socket.Adapter.onMessage = func(mType int, message []byte) {
+		if err := socket.handleMessage(mType, message, userHandle); err != nil {
+			log.Warn(errors.As(err))
 		}
 	}
 
-	go func() {
-		socket.Adapter.onOpen = func(event interface{}) error {
-			log.Printf("Socket opened: %v\n", event)
+	socket.Adapter.onOpen = func(event interface{}) error {
+		log.Printf("Socket opened: %v\n", event)
+		go socket.pingPong(context.TODO())
+		return nil
+	}
 
-			socket.pingPong()
+	return nil
 
-			// Set a timeout for the connection process
-			resChan := make(chan error, 1)
-			go func() {
-				time.Sleep(time.Duration(*timeoutMs) * time.Millisecond)
-				resChan <- errors.New("socket connection timed out")
-			}()
-
-			select {
-			case err := <-resChan:
-				if err != nil {
-					socket.Adapter.Close()
-					return err
-				}
-			}
-
-			return nil
-		}
-	}()
-
-	return &session, nil
 }
 
 // Disconnect terminates the WebSocket connection.
 func (socket *DefaultSocket) Disconnect(fireDisconnectEvent bool) {
+	socket.userClosed.Store(true)
 	if socket.Adapter.IsOpen() {
 		socket.Adapter.Close()
 	}
 	if fireDisconnectEvent {
-		socket.OnDisconnect(fmt.Errorf("socket disconnected"))
+		socket.onDisconnect(fmt.Errorf("socket disconnected"))
 	}
 }
 
@@ -532,385 +158,391 @@ func (socket *DefaultSocket) GetHeartbeatTimeoutMs() int {
 }
 
 // OnDisconnect handles WebSocket disconnections.
-func (socket *DefaultSocket) OnDisconnect(evt error) {
+func (socket *DefaultSocket) onDisconnect(evt error) {
 	if socket.Verbose {
-		fmt.Println("OnDisconnect:", evt)
+		log.Info("OnDisconnect:", evt)
 	}
+	if socket.userClosed.Load() {
+		return
+	}
+	// TODO: try reconnect
 }
 
 // OnError handles WebSocket errors.
-func (socket *DefaultSocket) OnError(evt error) {
+func (socket *DefaultSocket) onError(evt error) {
 	if socket.Verbose {
-		fmt.Println("OnError:", evt)
+		log.Info("OnError:", evt)
+	}
+	if socket.userClosed.Load() {
+		return
+	}
+	// TODO: try reconnect
+}
+
+// handleEncodedData handles encoding of match_data_send and party_data_send fields.
+func handleEncodedData(msg map[string]interface{}, field string) {
+	if sendData, exists := msg[field]; exists {
+		if sendMap, ok := sendData.(map[string]interface{}); ok {
+			// Convert op_code to string
+			if opCode, ok := sendMap["op_code"]; ok {
+				sendMap["op_code"] = fmt.Sprintf("%v", opCode)
+			}
+
+			// Encode data
+			if payload, exists := sendMap["data"]; exists {
+				switch v := payload.(type) {
+				case []byte:
+					sendMap["data"] = base64.StdEncoding.EncodeToString(v)
+				case string:
+					sendMap["data"] = base64.StdEncoding.EncodeToString([]byte(v))
+				}
+			}
+		}
+	}
+}
+
+// decodeReceivedData decodes the match_data and party_data fields in messages received from the server.
+func decodeReceivedData(msg map[string]interface{}, field string) {
+	if data, exists := msg[field]; exists {
+		if dataMap, ok := data.(map[string]interface{}); ok {
+			if encoded, exists := dataMap["data"]; exists {
+				if encodedStr, ok := encoded.(string); ok {
+					decodedBytes, err := base64.StdEncoding.DecodeString(encodedStr)
+					if err == nil {
+						dataMap["data"] = decodedBytes
+					}
+				}
+			}
+		}
 	}
 }
 
 // HandleMessage processes incoming WebSocket messages.
-func (socket *DefaultSocket) HandleMessage(message []byte) {
-	var msg map[string]interface{}
-	if err := json.Unmarshal(message, &msg); err != nil {
-		if socket.Verbose {
-			fmt.Println("Failed to parse message:", err)
+func (socket *DefaultSocket) handleMessage(mType int, message []byte, handle func(*RspResult) bool) error {
+	//log.Debugf("message_type:%d, message:%s", mType, string(message))
+
+	result := &RspResult{Message: message}
+	// try find the request cid
+	decoded := &rtapi.Envelope{}
+	if err := protojson.Unmarshal(message, decoded); err != nil {
+		handle(result)
+		return nil
+	}
+	result.Decoded = decoded
+
+	// Handle specific decoding logic for match_data and party_data
+	// decodeReceivedData(decoded, "match_data")
+	//decodeReceivedData(decoded, "party_data")
+
+	cid := decoded.Cid
+	if len(cid) > 0 {
+		rsp, ok := socket.cIds.Load(cid)
+		if ok {
+			err, ok := decoded.GetMessage().(*rtapi.Envelope_Error)
+			if ok {
+				rsp.(chan any) <- errors.New(err.Error.Message).As(err.Error)
+			} else {
+				rsp.(chan any) <- result
+			}
+
+			return nil
 		}
-		return
 	}
 
-	if cid, ok := msg["cid"].(string); ok {
-		executor, exists := socket.cIds[cid]
-		if exists {
-			delete(socket.cIds, cid)
-			if _, hasError := msg["error"]; hasError {
-				executor.Reject(errors.New(msg["error"].(string)))
-			} else {
-				executor.Resolve(msg)
-			}
-		} else {
-			if socket.Verbose {
-				fmt.Println("No promise executor for message CID:", cid)
-			}
-		}
-	} else {
-		// Handle different message types here (notifications, match data, etc.)
-		if socket.Verbose {
-			fmt.Println("Message received:", string(message))
-		}
-	}
+	// unknow message, notify to caller
+	handle(result)
+	return nil
+
 }
 
 // Send sends a message to the WebSocket server with optional timeout.
-func (socket *DefaultSocket) Send(message interface{}, sendTimeout *int) error {
+// any should be error or []byte or Rsp pointer
+func (socket *DefaultSocket) Send(message *rtapi.Envelope, sendTimeout *int) any {
+	if !socket.Adapter.IsOpen() {
+		return errors.New("socket connection is not established")
+	}
+
+	rsp := make(chan any, 1)
+	defer close(rsp)
+
+	cid := socket.GenerateCID()
+	message.Cid = cid // write a seq number
+
+	socket.cIds.Store(cid, rsp)
+	defer socket.cIds.Delete(cid)
+
+	//// Handle specific cases of match_data_send and party_data_send
+	//if msgMap, ok := message.(map[string]interface{}); ok {
+	//	handleEncodedData(msgMap, "match_data_send")
+	//	handleEncodedData(msgMap, "party_data_send")
+	//}
+
+	if err := socket.Adapter.Send(message); err != nil {
+		return errors.As(err)
+	}
+
 	if sendTimeout == nil {
 		sendTimeout = new(int)
 		*sendTimeout = DefaultTimeoutMs
 	}
 
-	if !socket.Adapter.IsOpen() {
-		return errors.New("socket connection is not established")
+	t := time.NewTimer(time.Duration(*sendTimeout) * time.Millisecond)
+	select {
+	case <-t.C:
+		return errors.New("timeout")
+	case data := <-rsp:
+		return data
 	}
-
-	cid := socket.GenerateCID()
-	socket.cIds[cid] = &PromiseExecutor{
-		Resolve: func(result interface{}) {
-			if socket.Verbose {
-				fmt.Println("Message sent successfully")
-			}
-		},
-		Reject: func(e error) {
-			if socket.Verbose {
-				fmt.Println("Message failed:", e)
-			}
-		},
-	}
-
-	err := socket.Adapter.Send(message)
-	if err != nil {
-		log.Print(err)
-		return err
-	}
-
-	// Set a timeout for the send operation
-	go func(cid string) {
-		time.Sleep(time.Duration(*sendTimeout) * time.Millisecond)
-		delete(socket.cIds, cid)
-	}(cid)
-
-	return nil
-}
-
-// ReadResponse reads and parses the next response from the WebSocket connection.
-func (socket *DefaultSocket) Read() (map[string]interface{}, error) {
-	if !socket.Adapter.IsOpen() {
-		return nil, errors.New("socket connection is not established")
-	}
-
-	message, err := socket.Adapter.Read()
-	if err != nil {
-		return nil, fmt.Errorf("failed to read message from socket: %w", err)
-	}
-
-	var response map[string]interface{}
-	if err := json.Unmarshal(message, &response); err != nil {
-		return nil, fmt.Errorf("failed to parse socket response: %w", err)
-	}
-
-	return response, nil
 }
 
 // CreateMatch sends a request to create a match and returns the created Match.
-func (socket *DefaultSocket) CreateMatch(name *string) (*Match, error) {
-	request := CreateMatch{
-		MatchCreate: struct {
-			Name *string `json:"name,omitempty"`
-		}{Name: name},
+func (socket *DefaultSocket) CreateMatch(name *string) (*rtapi.Match, error) {
+	req := &rtapi.Envelope{
+		Message: &rtapi.Envelope_MatchCreate{
+			MatchCreate: &rtapi.MatchCreate{Name: *name},
+		},
 	}
 
-	err := socket.Send(request, nil)
-	if err != nil {
-		return nil, err
+	result := socket.Send(req, nil)
+	if err, ok := result.(error); ok {
+		return nil, errors.As(err)
+	}
+	rsp, ok := result.(*RspResult)
+	if !ok {
+		return nil, errors.New("unknow protocal").As(result)
 	}
 
-	response, err := socket.Read()
-	if err != nil {
-		log.Printf("Failed to read response: %v\n", err)
-		return nil, err
-	}
-
-	if matchData, ok := response["match"]; ok {
-		matchBytes, err := json.Marshal(matchData)
-		if err != nil {
-			return nil, fmt.Errorf("failed to serialize match data: %w", err)
-		}
-
-		var match Match
-		if err := json.Unmarshal(matchBytes, &match); err != nil {
-			return nil, fmt.Errorf("failed to deserialize match data into Match struct: %w", err)
-		}
-
-		return &match, nil
-	}
-
-	return nil, fmt.Errorf("invalid response format: missing or invalid match field")
+	return rsp.Decoded.GetMessage().(*rtapi.Envelope_Match).Match, nil
 }
 
 // CreateParty Example methods for handling specific socket calls
-func (socket *DefaultSocket) CreateParty(open bool, maxSize int) (*Party, error) {
-	request := map[string]interface{}{
-		"party_create": map[string]interface{}{
-			"open":     open,
-			"max_size": maxSize,
+func (socket *DefaultSocket) CreateParty(open bool, maxSize int32) (*rtapi.Party, error) {
+	req := &rtapi.Envelope{
+		Message: &rtapi.Envelope_PartyCreate{
+			PartyCreate: &rtapi.PartyCreate{Open: open, MaxSize: maxSize},
 		},
 	}
 
-	err := socket.Send(request, nil)
-	if err != nil {
-		return nil, err
+	result := socket.Send(req, nil)
+	if err, ok := result.(error); ok {
+		return nil, errors.As(err)
 	}
 
-	return &Party{Open: open, MaxSize: maxSize}, nil
+	return result.(*RspResult).Decoded.GetMessage().(*rtapi.Envelope_Party).Party, nil
 }
 
 // FollowUsers sends a request to follow a list of user IDs and returns the status.
-func (socket *DefaultSocket) FollowUsers(userIds []string) (*Status, error) {
-	request := map[string]interface{}{
-		"status_follow": map[string]interface{}{
-			"user_ids": userIds,
+func (socket *DefaultSocket) FollowUsers(userIds []string) (*rtapi.Status, error) {
+	req := &rtapi.Envelope{
+		Message: &rtapi.Envelope_StatusFollow{
+			StatusFollow: &rtapi.StatusFollow{
+				UserIds: userIds,
+			},
 		},
 	}
 
-	var response map[string]interface{}
-	err := socket.Send(request, nil)
-	if err != nil {
-		return nil, err
+	result := socket.Send(req, nil)
+	if err, ok := result.(error); ok {
+		return nil, errors.As(err)
 	}
 
-	if respStatus, ok := response["status"].(*Status); ok {
-		return respStatus, nil
-	}
-
-	return nil, fmt.Errorf("invalid response format")
+	return result.(*RspResult).Decoded.GetMessage().(*rtapi.Envelope_Status).Status, nil
 }
 
 // JoinChat sends a request to join a chat and returns the joined Channel.
-func (socket *DefaultSocket) JoinChat(target string, chatType int, persistence, hidden bool) (*Channel, error) {
-	request := map[string]interface{}{
-		"channel_join": map[string]interface{}{
-			"target":      target,
-			"type":        chatType,
-			"persistence": persistence,
-			"hidden":      hidden,
+func (socket *DefaultSocket) JoinChat(target string, chatType int32, persistence, hidden bool) (*rtapi.Channel, error) {
+	req := &rtapi.Envelope{
+		Message: &rtapi.Envelope_ChannelJoin{
+			ChannelJoin: &rtapi.ChannelJoin{
+				Target:      target,
+				Type:        chatType,
+				Persistence: wrapperspb.Bool(persistence),
+				Hidden:      wrapperspb.Bool(hidden),
+			},
 		},
 	}
 
-	var response map[string]interface{}
-	err := socket.Send(request, nil)
-	if err != nil {
-		return nil, err
+	result := socket.Send(req, nil)
+	if err, ok := result.(error); ok {
+		return nil, errors.As(err)
 	}
-
-	if channel, ok := response["channel"].(*Channel); ok {
-		return channel, nil
-	}
-
-	return nil, fmt.Errorf("invalid response format: missing or invalid channel field")
+	return result.(*RspResult).Decoded.GetMessage().(*rtapi.Envelope_Channel).Channel, nil
 }
 
 // JoinMatch sends a request to join a match and returns the joined Match.
-func (socket *DefaultSocket) JoinMatch(matchID, token *string, metadata *map[string]interface{}) (*Match, error) {
-	request := map[string]interface{}{
-		"match_join": map[string]interface{}{
-			"metadata": metadata,
+func (socket *DefaultSocket) JoinMatch(matchID, token *string, metadata map[string]string) (*rtapi.Match, error) {
+	matchId := &rtapi.MatchJoin_MatchId{MatchId: *matchID}
+	matchToken := &rtapi.MatchJoin_Token{Token: *token}
+	matchJoin := &rtapi.MatchJoin{
+		Metadata: metadata,
+	}
+	if token != nil && *token != "" {
+		matchJoin.Id = matchToken
+	} else {
+		matchJoin.Id = matchId
+	}
+	req := &rtapi.Envelope{
+		Message: &rtapi.Envelope_MatchJoin{
+			MatchJoin: matchJoin,
 		},
 	}
 
-	if token != nil && *token != "" {
-		request["match_join"].(map[string]interface{})["token"] = token
-	} else {
-		request["match_join"].(map[string]interface{})["match_id"] = matchID
+	result := socket.Send(req, nil)
+	if err, ok := result.(error); ok {
+		return nil, errors.As(err)
 	}
 
-	err := socket.Send(request, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	response, err := socket.Read()
-	if err != nil {
-		log.Printf("Failed to read response: %v\n", err)
-		return nil, err
-	}
-
-	if matchData, ok := response["match"]; ok {
-		matchBytes, err := json.Marshal(matchData)
-		if err != nil {
-			return nil, fmt.Errorf("failed to serialize match data: %w", err)
-		}
-
-		var match Match
-		if err := json.Unmarshal(matchBytes, &match); err != nil {
-			return nil, fmt.Errorf("failed to deserialize match data into Match struct: %w", err)
-		}
-
-		return &match, nil
-	}
-
-	return nil, fmt.Errorf("invalid response format: missing or invalid match field")
+	return result.(*RspResult).Decoded.GetMessage().(*rtapi.Envelope_Match).Match, nil
 }
 
 // JoinParty sends a request to join a party.
 func (socket *DefaultSocket) JoinParty(partyID string) error {
-	request := map[string]interface{}{
-		"party_join": map[string]interface{}{
-			"party_id": partyID,
+	req := &rtapi.Envelope{
+		Message: &rtapi.Envelope_PartyJoin{
+			PartyJoin: &rtapi.PartyJoin{
+				PartyId: partyID,
+			},
 		},
 	}
 
-	if err := socket.Send(request, nil); err != nil {
-		return err
+	result := socket.Send(req, nil)
+	if err, ok := result.(error); ok {
+		return errors.As(err)
 	}
+
+	// TODO: need response?
 
 	return nil
 }
 
 // LeaveChat sends a request to leave a chat channel.
 func (socket *DefaultSocket) LeaveChat(channelID string) error {
-	request := map[string]interface{}{
-		"channel_leave": map[string]interface{}{
-			"channel_id": channelID,
+	req := &rtapi.Envelope{
+		Message: &rtapi.Envelope_ChannelLeave{
+			ChannelLeave: &rtapi.ChannelLeave{
+				ChannelId: channelID,
+			},
 		},
 	}
 
-	if err := socket.Send(request, nil); err != nil {
-		return err
+	result := socket.Send(req, nil)
+	if err, ok := result.(error); ok {
+		return errors.As(err)
 	}
+
+	// TODO: decode?
 
 	return nil
 }
 
 // LeaveMatch sends a request to leave a match.
 func (socket *DefaultSocket) LeaveMatch(matchID string) error {
-	request := map[string]interface{}{
-		"match_leave": map[string]interface{}{
-			"match_id": matchID,
+	req := &rtapi.Envelope{
+		Message: &rtapi.Envelope_MatchLeave{
+			MatchLeave: &rtapi.MatchLeave{
+				MatchId: matchID,
+			},
 		},
 	}
 
-	if err := socket.Send(request, nil); err != nil {
-		return err
+	result := socket.Send(req, nil)
+	if err, ok := result.(error); ok {
+		return errors.As(err)
 	}
+
+	// TODO: decode?
 
 	return nil
 }
 
 // LeaveParty sends a request to leave a party.
 func (socket *DefaultSocket) LeaveParty(partyID string) error {
-	request := map[string]interface{}{
-		"party_leave": map[string]interface{}{
-			"party_id": partyID,
+	req := &rtapi.Envelope{
+		Message: &rtapi.Envelope_PartyLeave{
+			PartyLeave: &rtapi.PartyLeave{
+				PartyId: partyID,
+			},
 		},
 	}
 
-	if err := socket.Send(request, nil); err != nil {
-		return err
+	result := socket.Send(req, nil)
+	if err, ok := result.(error); ok {
+		return errors.As(err)
 	}
+
+	// TODO: decode
 
 	return nil
 }
 
 // ListPartyJoinRequests fetches the list of join requests for a given party ID.
-func (socket *DefaultSocket) ListPartyJoinRequests(partyID string) (*PartyJoinRequest, error) {
-	request := map[string]interface{}{
-		"party_join_request_list": map[string]interface{}{
-			"party_id": partyID,
+func (socket *DefaultSocket) ListPartyJoinRequests(partyID string) (*rtapi.PartyJoinRequest, error) {
+	req := &rtapi.Envelope{
+		Message: &rtapi.Envelope_PartyJoinRequestList{
+			PartyJoinRequestList: &rtapi.PartyJoinRequestList{
+				PartyId: partyID,
+			},
 		},
 	}
 
-	var response map[string]interface{}
-	err := socket.Send(request, nil)
-	if err != nil {
-		return nil, err
+	// TODO: confirm the main key is channel.
+	result := socket.Send(req, nil)
+	if err, ok := result.(error); ok {
+		return nil, errors.As(err)
 	}
 
-	if joinRequest, ok := response["party_join_request"].(*PartyJoinRequest); ok {
-		return joinRequest, nil
-	}
-
-	return nil, fmt.Errorf("invalid response format: missing or invalid party_join_request field")
+	return result.(*RspResult).Decoded.GetMessage().(*rtapi.Envelope_PartyJoinRequest).PartyJoinRequest, nil
 }
 
 // RemoveChatMessage sends a request to remove a chat message and returns the ChannelMessageAck.
-func (socket *DefaultSocket) RemoveChatMessage(channelID, messageID string) (*ChannelMessageAck, error) {
-	request := map[string]interface{}{
-		"channel_message_remove": map[string]interface{}{
-			"channel_id": channelID,
-			"message_id": messageID,
+func (socket *DefaultSocket) RemoveChatMessage(channelID, messageID string) (*rtapi.ChannelMessageAck, error) {
+	req := &rtapi.Envelope{
+		Message: &rtapi.Envelope_ChannelMessageRemove{
+			ChannelMessageRemove: &rtapi.ChannelMessageRemove{
+				ChannelId: channelID,
+				MessageId: messageID,
+			},
 		},
 	}
 
-	var response map[string]interface{}
-	err := socket.Send(request, nil)
-	if err != nil {
-		return nil, err
+	result := socket.Send(req, nil)
+	if err, ok := result.(error); ok {
+		return nil, errors.As(err)
 	}
-
-	if messageAck, ok := response["channel_message_ack"].(*ChannelMessageAck); ok {
-		return messageAck, nil
-	}
-
-	return nil, fmt.Errorf("invalid response format: missing or invalid channel_message_ack field")
+	return result.(*RspResult).Decoded.GetMessage().(*rtapi.Envelope_ChannelMessageAck).ChannelMessageAck, nil
 }
 
 // PromotePartyMember promotes a party member to party leader and returns the new PartyLeader.
-func (socket *DefaultSocket) PromotePartyMember(partyID string, partyMember Presence) (*PartyLeader, error) {
-	request := map[string]interface{}{
-		"party_promote": map[string]interface{}{
-			"party_id": partyID,
-			"presence": partyMember,
+func (socket *DefaultSocket) PromotePartyMember(partyID string, partyMember *rtapi.UserPresence) (*rtapi.PartyLeader, error) {
+	req := &rtapi.Envelope{
+		Message: &rtapi.Envelope_PartyPromote{
+			PartyPromote: &rtapi.PartyPromote{
+				PartyId:  partyID,
+				Presence: partyMember,
+			},
 		},
 	}
 
-	var response map[string]interface{}
-	err := socket.Send(request, nil)
-	if err != nil {
-		return nil, err
+	result := socket.Send(req, nil)
+	if err, ok := result.(error); ok {
+		return nil, errors.As(err)
 	}
-
-	if partyLeader, ok := response["party_leader"].(*PartyLeader); ok {
-		return partyLeader, nil
-	}
-
-	return nil, fmt.Errorf("invalid response format: missing or invalid party_leader field")
+	return result.(*RspResult).Decoded.GetMessage().(*rtapi.Envelope_PartyLeader).PartyLeader, nil
 }
 
 // RemoveMatchmaker sends a request to remove a matchmaker ticket.
 func (socket *DefaultSocket) RemoveMatchmaker(ticket string) error {
-	request := map[string]interface{}{
-		"matchmaker_remove": map[string]interface{}{
-			"ticket": ticket,
+	req := &rtapi.Envelope{
+		Message: &rtapi.Envelope_MatchmakerRemove{
+			MatchmakerRemove: &rtapi.MatchmakerRemove{
+				Ticket: ticket,
+			},
 		},
 	}
 
-	if err := socket.Send(request, nil); err != nil {
-		return err
+	result := socket.Send(req, nil)
+	if err, ok := result.(error); ok {
+		return errors.As(err)
 	}
 
 	return nil
@@ -918,89 +550,99 @@ func (socket *DefaultSocket) RemoveMatchmaker(ticket string) error {
 
 // RemoveMatchmakerParty sends a request to remove a matchmaker ticket from a party.
 func (socket *DefaultSocket) RemoveMatchmakerParty(partyID, ticket string) error {
-	request := map[string]interface{}{
-		"party_matchmaker_remove": map[string]interface{}{
-			"party_id": partyID,
-			"ticket":   ticket,
+	req := &rtapi.Envelope{
+		Message: &rtapi.Envelope_PartyMatchmakerRemove{
+			PartyMatchmakerRemove: &rtapi.PartyMatchmakerRemove{
+				PartyId: partyID,
+				Ticket:  ticket,
+			},
 		},
 	}
 
-	if err := socket.Send(request, nil); err != nil {
-		return err
+	result := socket.Send(req, nil)
+	if err, ok := result.(error); ok {
+		return errors.As(err)
 	}
 
 	return nil
 }
 
 // RemovePartyMember sends a request to remove a member from a party.
-func (socket *DefaultSocket) RemovePartyMember(partyID string, member Presence) error {
-	request := map[string]interface{}{
-		"party_remove": map[string]interface{}{
-			"party_id": partyID,
-			"presence": member,
+func (socket *DefaultSocket) RemovePartyMember(partyID string, member *rtapi.UserPresence) error {
+	req := &rtapi.Envelope{
+		Message: &rtapi.Envelope_PartyRemove{
+			PartyRemove: &rtapi.PartyRemove{
+				PartyId:  partyID,
+				Presence: member,
+			},
 		},
 	}
 
-	if err := socket.Send(request, nil); err != nil {
-		return err
+	result := socket.Send(req, nil)
+	if err, ok := result.(error); ok {
+		return errors.As(err)
 	}
 
 	return nil
 }
 
 // Rpc sends an RPC request and returns an ApiRpc response.
-func (socket *DefaultSocket) Rpc(id, payload, httpKey string) (*ApiRpc, error) {
-	request := map[string]interface{}{
-		"rpc": map[string]interface{}{
-			"id":       id,
-			"payload":  payload,
-			"http_key": httpKey,
+func (socket *DefaultSocket) Rpc(id, payload, httpKey string) (*api.Rpc, error) {
+	req := &rtapi.Envelope{
+		Message: &rtapi.Envelope_Rpc{
+			Rpc: &api.Rpc{
+				Id:      id,
+				Payload: payload,
+				HttpKey: httpKey,
+			},
 		},
 	}
 
-	var response map[string]interface{}
-	if err := socket.Send(request, nil); err != nil {
-		return nil, err
+	result := socket.Send(req, nil)
+	if err, ok := result.(error); ok {
+		return nil, errors.As(err)
 	}
-
-	if rpc, ok := response["rpc"].(*ApiRpc); ok {
-		return rpc, nil
-	}
-
-	return nil, fmt.Errorf("invalid response format: missing or invalid rpc field")
+	return result.(*RspResult).Decoded.GetMessage().(*rtapi.Envelope_Rpc).Rpc, nil
 }
 
 // SendMatchState sends match state updates to the server.
-func (socket *DefaultSocket) SendMatchState(matchID string, opCode int, data interface{}, presences []Presence, reliable bool) error {
-	request := map[string]interface{}{
-		"match_data_send": map[string]interface{}{
-			"match_id":  matchID,
-			"op_code":   opCode,
-			"data":      data,
-			"presences": presences,
-			"reliable":  reliable,
+func (socket *DefaultSocket) SendMatchState(matchID string, opCode int64, data []byte, presences []*rtapi.UserPresence, reliable bool) error {
+	req := &rtapi.Envelope{
+		Message: &rtapi.Envelope_MatchDataSend{
+			MatchDataSend: &rtapi.MatchDataSend{
+				MatchId:   matchID,
+				OpCode:    opCode,
+				Data:      data,
+				Presences: presences,
+				Reliable:  reliable,
+			},
 		},
 	}
 
-	if err := socket.Send(request, nil); err != nil {
-		return err
+	// TODO: confirm the msg_key
+	result := socket.Send(req, nil)
+	if err, ok := result.(error); ok {
+		return errors.As(err)
 	}
 
 	return nil
 }
 
 // SendPartyData sends party data updates to the server.
-func (socket *DefaultSocket) SendPartyData(partyID string, opCode int, data interface{}) error {
-	request := map[string]interface{}{
-		"party_data_send": map[string]interface{}{
-			"party_id": partyID,
-			"op_code":  opCode,
-			"data":     data,
+func (socket *DefaultSocket) SendPartyData(partyID string, opCode int64, data []byte) error {
+	req := &rtapi.Envelope{
+		Message: &rtapi.Envelope_PartyDataSend{
+			PartyDataSend: &rtapi.PartyDataSend{
+				PartyId: partyID,
+				OpCode:  opCode,
+				Data:    data,
+			},
 		},
 	}
 
-	if err := socket.Send(request, nil); err != nil {
-		return err
+	result := socket.Send(req, nil)
+	if err, ok := result.(error); ok {
+		return errors.As(err)
 	}
 
 	return nil
@@ -1008,88 +650,96 @@ func (socket *DefaultSocket) SendPartyData(partyID string, opCode int, data inte
 
 // UnfollowUsers sends a request to unfollow the specified users.
 func (socket *DefaultSocket) UnfollowUsers(userIDs []string) error {
-	request := map[string]interface{}{
-		"status_unfollow": map[string]interface{}{
-			"user_ids": userIDs,
+	req := &rtapi.Envelope{
+		Message: &rtapi.Envelope_StatusUnfollow{
+			StatusUnfollow: &rtapi.StatusUnfollow{
+				UserIds: userIDs,
+			},
 		},
 	}
 
-	if err := socket.Send(request, nil); err != nil {
-		return err
+	result := socket.Send(req, nil)
+	if err, ok := result.(error); ok {
+		return errors.As(err)
 	}
 
 	return nil
 }
 
 // UpdateChatMessage sends a request to update a chat message and returns the ChannelMessageAck.
-func (socket *DefaultSocket) UpdateChatMessage(channelID, messageID string, content interface{}) (*ChannelMessageAck, error) {
-	request := map[string]interface{}{
-		"channel_message_update": map[string]interface{}{
-			"channel_id": channelID,
-			"message_id": messageID,
-			"content":    content,
+func (socket *DefaultSocket) UpdateChatMessage(channelID, messageID string, content string) (*rtapi.ChannelMessageAck, error) {
+	req := &rtapi.Envelope{
+		Message: &rtapi.Envelope_ChannelMessageUpdate{
+			ChannelMessageUpdate: &rtapi.ChannelMessageUpdate{
+				ChannelId: channelID,
+				MessageId: messageID,
+				Content:   content,
+			},
 		},
 	}
 
-	var response map[string]interface{}
-	if err := socket.Send(request, nil); err != nil {
-		return nil, err
+	result := socket.Send(req, nil)
+	if err, ok := result.(error); ok {
+		return nil, errors.As(err)
 	}
 
-	if messageAck, ok := response["channel_message_ack"].(*ChannelMessageAck); ok {
-		return messageAck, nil
-	}
-
-	return nil, fmt.Errorf("invalid response format: missing or invalid channel_message_ack field")
+	return result.(*RspResult).Decoded.GetMessage().(*rtapi.Envelope_ChannelMessageAck).ChannelMessageAck, nil
 }
 
 // UpdateStatus sends a status update to the server.
 func (socket *DefaultSocket) UpdateStatus(status *string) error {
-	request := map[string]interface{}{
-		"status_update": map[string]interface{}{
-			"status": status,
+	req := &rtapi.Envelope{
+		Message: &rtapi.Envelope_StatusUpdate{
+			StatusUpdate: &rtapi.StatusUpdate{
+				Status: wrapperspb.String(*status),
+			},
 		},
 	}
 
-	if err := socket.Send(request, nil); err != nil {
-		return err
+	result := socket.Send(req, nil)
+	if err, ok := result.(error); ok {
+		return errors.As(err)
 	}
 
 	return nil
 }
 
 // WriteChatMessage sends a chat message and returns the ChannelMessageAck.
-func (socket *DefaultSocket) WriteChatMessage(channelID string, content interface{}) (*ChannelMessageAck, error) {
-	request := map[string]interface{}{
-		"channel_message_send": map[string]interface{}{
-			"channel_id": channelID,
-			"content":    content,
+func (socket *DefaultSocket) WriteChatMessage(channelID, content string) (*rtapi.ChannelMessageAck, error) {
+	// const response = await this.send({channel_message_send: {channel_id: channel_id, content: content}});
+	req := &rtapi.Envelope{
+		Message: &rtapi.Envelope_ChannelMessageSend{
+			ChannelMessageSend: &rtapi.ChannelMessageSend{
+				ChannelId: channelID,
+				Content:   content,
+			},
 		},
 	}
 
-	var response map[string]interface{}
-	if err := socket.Send(request, nil); err != nil {
-		return nil, err
+	result := socket.Send(req, nil)
+	if err, ok := result.(error); ok {
+		return nil, errors.As(err)
 	}
-
-	if messageAck, ok := response["channel_message_ack"].(*ChannelMessageAck); ok {
-		return messageAck, nil
-	}
-
-	return nil, fmt.Errorf("invalid response format: missing or invalid channel_message_ack field")
+	return result.(*RspResult).Decoded.GetMessage().(*rtapi.Envelope_ChannelMessageAck).ChannelMessageAck, nil
 }
 
 // pingPong does a periodic ping-pong check with the server.
-func (socket *DefaultSocket) pingPong() {
+func (socket *DefaultSocket) pingPong(ctx context.Context) {
 	ticker := time.NewTicker(time.Duration(socket.HeartbeatTimeoutMs) * time.Millisecond)
 	defer ticker.Stop()
 	log.Println("before pingpong socket is nil:", socket.Adapter.socket == nil)
 
+	pingReq := &rtapi.Envelope{
+		Message: &rtapi.Envelope_Ping{
+			Ping: &rtapi.Ping{},
+		},
+	}
+
 	for {
 		select {
 		case <-ticker.C:
-			ping := map[string]interface{}{"ping": struct{}{}}
-			if err := socket.Send(ping, &socket.HeartbeatTimeoutMs); err != nil {
+			result := socket.Send(pingReq, &socket.HeartbeatTimeoutMs)
+			if err, ok := result.(error); ok {
 				log.Println("after pingpong socket is nil:", socket.Adapter.socket == nil)
 				log.Println("Failed to send ping:", err)
 				if socket.Adapter.IsOpen() {
@@ -1098,6 +748,8 @@ func (socket *DefaultSocket) pingPong() {
 				}
 				return
 			}
+		case <-ctx.Done():
+			return
 		}
 	}
 }

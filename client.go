@@ -316,7 +316,7 @@ func NewClient(
 
 	return &Client{
 		ExpiredTimespanMs:  DefaultExpiredTimespanMs,
-		ApiClient:          &NakamaApi{serverKey, basePath, *timeout},
+		ApiClient:          &NakamaApi{&serverKey, &basePath, timeout},
 		ServerKey:          serverKey,
 		Host:               host,
 		Port:               port,
@@ -327,8 +327,8 @@ func NewClient(
 }
 
 // AddGroupUsers adds users to a group, or accepts their join requests.
-func (c *Client) AddGroupUsers(session *Session, groupId string, ids []string) (bool, error) {
-	if c.AutoRefreshSession && session.RefreshToken != "" &&
+func (c *Client) AddGroupUsers(session *Session, groupId *string, ids []string) (bool, error) {
+	if c.AutoRefreshSession && session.RefreshToken != nil && *session.RefreshToken != "" &&
 		session.IsExpired((time.Now().UnixMilli()+c.ExpiredTimespanMs)/1000) {
 		if _, err := c.SessionRefresh(session, nil); err != nil {
 			return false, err
@@ -345,7 +345,7 @@ func (c *Client) AddGroupUsers(session *Session, groupId string, ids []string) (
 
 // AddFriends adds friends by ID or username to a user's account.
 func (c *Client) AddFriends(session *Session, ids []string, usernames []string) (bool, error) {
-	if c.AutoRefreshSession && session.RefreshToken != "" &&
+	if c.AutoRefreshSession && session.RefreshToken != nil && *session.RefreshToken != "" &&
 		session.IsExpired((time.Now().UnixMilli()+c.ExpiredTimespanMs)/1000) {
 		if _, err := c.SessionRefresh(session, nil); err != nil {
 			return false, err
@@ -361,24 +361,24 @@ func (c *Client) AddFriends(session *Session, ids []string, usernames []string) 
 }
 
 // AuthenticateApple authenticates a user with an Apple ID against the server.
-func (c *Client) AuthenticateApple(token string, create *bool, username *string, vars map[string]string) (*Session, error) {
+func (c *Client) AuthenticateApple(token *string, create *bool, username *string, vars map[string]string) (*Session, error) {
 	// Prepare the authentication request
 	request := ApiAccountApple{
-		Token: &token,
+		Token: token,
 		Vars:  vars,
 	}
 
 	// Call the API client to authenticate with Apple
-	apiSession, err := c.ApiClient.AuthenticateApple(c.ServerKey, "", request, create, username, make(map[string]string))
+	apiSession, err := c.ApiClient.AuthenticateApple(&c.ServerKey, nil, &request, create, username, make(map[string]string))
 	if err != nil {
 		return nil, err
 	}
 
 	// Return a new Session object
 	return &Session{
-		Token:        *apiSession.Token,
-		RefreshToken: *apiSession.RefreshToken,
-		Created:      *apiSession.Created,
+		Token:        apiSession.Token,
+		RefreshToken: apiSession.RefreshToken,
+		Created:      apiSession.Created,
 	}, nil
 }
 
@@ -391,16 +391,16 @@ func (c *Client) AuthenticateCustom(id string, create *bool, username *string, v
 	}
 
 	// Call the API client to authenticate with a custom ID
-	apiSession, err := c.ApiClient.AuthenticateCustom(c.ServerKey, "", request, create, username, make(map[string]string))
+	apiSession, err := c.ApiClient.AuthenticateCustom(&c.ServerKey, nil, &request, create, username, make(map[string]string))
 	if err != nil {
 		return nil, err
 	}
 
 	// Return a new Session object
 	return &Session{
-		Token:        *apiSession.Token,
-		RefreshToken: *apiSession.RefreshToken,
-		Created:      *apiSession.Created,
+		Token:        apiSession.Token,
+		RefreshToken: apiSession.RefreshToken,
+		Created:      apiSession.Created,
 	}, nil
 }
 
@@ -413,7 +413,7 @@ func (c *Client) AuthenticateDevice(id string, create *bool, username *string, v
 	}
 
 	// Call the API client to authenticate with a device ID
-	apiSession, err := c.ApiClient.AuthenticateDevice(c.ServerKey, "", request, create, username, make(map[string]string))
+	apiSession, err := c.ApiClient.AuthenticateDevice(&c.ServerKey, nil, &request, create, username, make(map[string]string))
 	if err != nil {
 		return nil, err
 	}
@@ -427,9 +427,9 @@ func (c *Client) AuthenticateDevice(id string, create *bool, username *string, v
 
 	// Return a new Session object
 	return &Session{
-		Token:        *apiSession.Token,
-		RefreshToken: *apiSession.RefreshToken,
-		Created:      created,
+		Token:        apiSession.Token,
+		RefreshToken: apiSession.RefreshToken,
+		Created:      &created,
 	}, nil
 }
 
@@ -443,16 +443,16 @@ func (c *Client) AuthenticateEmail(email string, password string, create *bool, 
 	}
 
 	// Call the API client to authenticate with email and password
-	apiSession, err := c.ApiClient.AuthenticateEmail(c.ServerKey, "", request, create, username, make(map[string]string))
+	apiSession, err := c.ApiClient.AuthenticateEmail(&c.ServerKey, nil, &request, create, username, make(map[string]string))
 	if err != nil {
 		return nil, err
 	}
 
 	// Return a new Session object
 	return &Session{
-		Token:        *apiSession.Token,
-		RefreshToken: *apiSession.RefreshToken,
-		Created:      *apiSession.Created,
+		Token:        apiSession.Token,
+		RefreshToken: apiSession.RefreshToken,
+		Created:      apiSession.Created,
 	}, nil
 }
 
@@ -465,16 +465,16 @@ func (c *Client) AuthenticateFacebookInstantGame(signedPlayerInfo string, create
 	}
 
 	// Call the API client to authenticate with Facebook Instant Game
-	apiSession, err := c.ApiClient.AuthenticateFacebookInstantGame(c.ServerKey, "", request, create, username, make(map[string]string))
+	apiSession, err := c.ApiClient.AuthenticateFacebookInstantGame(&c.ServerKey, nil, &request, create, username, make(map[string]string))
 	if err != nil {
 		return nil, err
 	}
 
 	// Return a new Session object
 	return &Session{
-		Token:        *apiSession.Token,
-		RefreshToken: *apiSession.RefreshToken,
-		Created:      *apiSession.Created,
+		Token:        apiSession.Token,
+		RefreshToken: apiSession.RefreshToken,
+		Created:      apiSession.Created,
 	}, nil
 }
 
@@ -487,16 +487,16 @@ func (c *Client) AuthenticateFacebook(token string, create *bool, username *stri
 	}
 
 	// Call the API client to authenticate with Facebook
-	apiSession, err := c.ApiClient.AuthenticateFacebook(c.ServerKey, "", request, create, username, sync, options)
+	apiSession, err := c.ApiClient.AuthenticateFacebook(&c.ServerKey, nil, &request, create, username, sync, options)
 	if err != nil {
 		return nil, err
 	}
 
 	// Return a new Session object
 	return &Session{
-		Token:        *apiSession.Token,
-		RefreshToken: *apiSession.RefreshToken,
-		Created:      *apiSession.Created,
+		Token:        apiSession.Token,
+		RefreshToken: apiSession.RefreshToken,
+		Created:      apiSession.Created,
 	}, nil
 }
 
@@ -509,16 +509,16 @@ func (c *Client) AuthenticateGoogle(token string, create *bool, username *string
 	}
 
 	// Call the API client to authenticate with Google
-	apiSession, err := c.ApiClient.AuthenticateGoogle(c.ServerKey, "", request, create, username, options)
+	apiSession, err := c.ApiClient.AuthenticateGoogle(&c.ServerKey, nil, &request, create, username, options)
 	if err != nil {
 		return nil, err
 	}
 
 	// Return a new Session object
 	return &Session{
-		Token:        *apiSession.Token,
-		RefreshToken: *apiSession.RefreshToken,
-		Created:      *apiSession.Created,
+		Token:        apiSession.Token,
+		RefreshToken: apiSession.RefreshToken,
+		Created:      apiSession.Created,
 	}, nil
 }
 
@@ -536,16 +536,16 @@ func (c *Client) AuthenticateGameCenter(bundleId string, playerId string, public
 	}
 
 	// Call the API client to authenticate with GameCenter
-	apiSession, err := c.ApiClient.AuthenticateGameCenter(c.ServerKey, "", request, create, username, options)
+	apiSession, err := c.ApiClient.AuthenticateGameCenter(&c.ServerKey, nil, &request, create, username, options)
 	if err != nil {
 		return nil, err
 	}
 
 	// Return a new Session object
 	return &Session{
-		Token:        *apiSession.Token,
-		RefreshToken: *apiSession.RefreshToken,
-		Created:      *apiSession.Created,
+		Token:        apiSession.Token,
+		RefreshToken: apiSession.RefreshToken,
+		Created:      apiSession.Created,
 	}, nil
 }
 
@@ -559,7 +559,7 @@ func (c *Client) AuthenticateSteam(token string, create *bool, username *string,
 	}
 
 	// Call the API client to authenticate with Steam
-	apiSession, err := c.ApiClient.AuthenticateSteam(c.ServerKey, "", request, create, username, nil, make(map[string]string))
+	apiSession, err := c.ApiClient.AuthenticateSteam(&c.ServerKey, nil, &request, create, username, nil, make(map[string]string))
 
 	if err != nil {
 		return nil, err
@@ -567,15 +567,15 @@ func (c *Client) AuthenticateSteam(token string, create *bool, username *string,
 
 	// Return a new Session object
 	return &Session{
-		Token:        *apiSession.Token,
-		RefreshToken: *apiSession.RefreshToken,
-		Created:      *apiSession.Created,
+		Token:        apiSession.Token,
+		RefreshToken: apiSession.RefreshToken,
+		Created:      apiSession.Created,
 	}, nil
 }
 
 // BanGroupUsers bans users from a group.
 func (c *Client) BanGroupUsers(session *Session, groupId string, ids []string) (bool, error) {
-	if c.AutoRefreshSession && session.RefreshToken != "" &&
+	if c.AutoRefreshSession && session.RefreshToken != nil && *session.RefreshToken != "" &&
 		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
 		_, err := c.SessionRefresh(session, nil)
 		if err != nil {
@@ -583,7 +583,7 @@ func (c *Client) BanGroupUsers(session *Session, groupId string, ids []string) (
 		}
 	}
 
-	response, err := c.ApiClient.BanGroupUsers(session.Token, groupId, ids, make(map[string]string))
+	response, err := c.ApiClient.BanGroupUsers(session.Token, &groupId, ids, make(map[string]string))
 	if err != nil {
 		return false, err
 	}
@@ -593,7 +593,7 @@ func (c *Client) BanGroupUsers(session *Session, groupId string, ids []string) (
 
 // BlockFriends blocks one or more users by ID or username.
 func (c *Client) BlockFriends(session *Session, ids []string, usernames []string) (bool, error) {
-	if c.AutoRefreshSession && session.RefreshToken != "" &&
+	if c.AutoRefreshSession && session.RefreshToken != nil && *session.RefreshToken != "" &&
 		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
 		_, err := c.SessionRefresh(session, nil)
 		if err != nil {
@@ -612,7 +612,7 @@ func (c *Client) BlockFriends(session *Session, ids []string, usernames []string
 // CreateGroup creates a new group with the current user as the creator and superadmin.
 func (c *Client) CreateGroup(session *Session, request ApiCreateGroupRequest) (*Group, error) {
 	// Check if the session requires refresh
-	if c.AutoRefreshSession && session.RefreshToken != "" &&
+	if c.AutoRefreshSession && session.RefreshToken != nil && *session.RefreshToken != "" &&
 		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
 		_, err := c.SessionRefresh(session, nil)
 		if err != nil {
@@ -621,7 +621,7 @@ func (c *Client) CreateGroup(session *Session, request ApiCreateGroupRequest) (*
 	}
 
 	// Call the API client to create the group
-	apiGroup, err := c.ApiClient.CreateGroup(session.Token, request, make(map[string]string))
+	apiGroup, err := c.ApiClient.CreateGroup(session.Token, &request, make(map[string]string))
 	if err != nil {
 		return nil, err
 	}
@@ -648,13 +648,13 @@ func (c *Client) CreateGroup(session *Session, request ApiCreateGroupRequest) (*
 }
 
 // CreateSocket creates a socket using the client's configuration.
-func (c *Client) CreateSocket(useSSL bool, verbose bool, adapter *WebSocketAdapter, sendTimeoutMs *int) DefaultSocket {
+func (c *Client) CreateSocket(useSSL bool, verbose bool, adapter *WebSocketAdapter, sendTimeoutMs *int) *DefaultSocket {
 	return NewDefaultSocket(c.Host, c.Port, useSSL, verbose, adapter, sendTimeoutMs)
 }
 
 // DeleteAccount deletes the current user's account.
 func (c *Client) DeleteAccount(session *Session) (bool, error) {
-	if c.AutoRefreshSession && session.RefreshToken != "" &&
+	if c.AutoRefreshSession && session.RefreshToken != nil && *session.RefreshToken != "" &&
 		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
 		_, err := c.SessionRefresh(session, nil)
 		if err != nil {
@@ -672,7 +672,7 @@ func (c *Client) DeleteAccount(session *Session) (bool, error) {
 
 // DeleteFriends deletes one or more users by ID or username.
 func (c *Client) DeleteFriends(session *Session, ids []string, usernames []string) (bool, error) {
-	if c.AutoRefreshSession && session.RefreshToken != "" &&
+	if c.AutoRefreshSession && session.RefreshToken != nil && *session.RefreshToken != "" &&
 		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
 		_, err := c.SessionRefresh(session, nil)
 		if err != nil {
@@ -690,7 +690,7 @@ func (c *Client) DeleteFriends(session *Session, ids []string, usernames []strin
 
 // DeleteGroup deletes a group the user is part of and has permissions to delete.
 func (c *Client) DeleteGroup(session *Session, groupId string) (bool, error) {
-	if c.AutoRefreshSession && session.RefreshToken != "" &&
+	if c.AutoRefreshSession && session.RefreshToken != nil && *session.RefreshToken != "" &&
 		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
 		_, err := c.SessionRefresh(session, nil)
 		if err != nil {
@@ -698,7 +698,7 @@ func (c *Client) DeleteGroup(session *Session, groupId string) (bool, error) {
 		}
 	}
 
-	response, err := c.ApiClient.DeleteGroup(session.Token, groupId, make(map[string]string))
+	response, err := c.ApiClient.DeleteGroup(session.Token, &groupId, make(map[string]string))
 	if err != nil {
 		return false, err
 	}
@@ -708,7 +708,7 @@ func (c *Client) DeleteGroup(session *Session, groupId string) (bool, error) {
 
 // DeleteNotifications deletes one or more notifications.
 func (c *Client) DeleteNotifications(session *Session, ids []string) (bool, error) {
-	if c.AutoRefreshSession && session.RefreshToken != "" &&
+	if c.AutoRefreshSession && session.RefreshToken != nil && *session.RefreshToken != "" &&
 		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
 		_, err := c.SessionRefresh(session, nil)
 		if err != nil {
@@ -726,7 +726,7 @@ func (c *Client) DeleteNotifications(session *Session, ids []string) (bool, erro
 
 // DeleteStorageObjects deletes one or more storage objects.
 func (c *Client) DeleteStorageObjects(session *Session, request ApiDeleteStorageObjectsRequest) (bool, error) {
-	if c.AutoRefreshSession && session.RefreshToken != "" &&
+	if c.AutoRefreshSession && session.RefreshToken != nil && *session.RefreshToken != "" &&
 		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
 		_, err := c.SessionRefresh(session, nil)
 		if err != nil {
@@ -734,7 +734,7 @@ func (c *Client) DeleteStorageObjects(session *Session, request ApiDeleteStorage
 		}
 	}
 
-	response, err := c.ApiClient.DeleteStorageObjects(session.Token, request, make(map[string]string))
+	response, err := c.ApiClient.DeleteStorageObjects(session.Token, &request, make(map[string]string))
 	if err != nil {
 		return false, err
 	}
@@ -743,8 +743,8 @@ func (c *Client) DeleteStorageObjects(session *Session, request ApiDeleteStorage
 }
 
 // DeleteTournamentRecord deletes a tournament record.
-func (c *Client) DeleteTournamentRecord(session *Session, tournamentId string) (bool, error) {
-	if c.AutoRefreshSession && session.RefreshToken != "" &&
+func (c *Client) DeleteTournamentRecord(session *Session, tournamentId *string) (bool, error) {
+	if c.AutoRefreshSession && session.RefreshToken != nil && *session.RefreshToken != "" &&
 		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
 		_, err := c.SessionRefresh(session, nil)
 		if err != nil {
@@ -761,8 +761,8 @@ func (c *Client) DeleteTournamentRecord(session *Session, tournamentId string) (
 }
 
 // DemoteGroupUsers demotes a set of users in a group to the next role down.
-func (c *Client) DemoteGroupUsers(session *Session, groupId string, ids []string) (bool, error) {
-	if c.AutoRefreshSession && session.RefreshToken != "" &&
+func (c *Client) DemoteGroupUsers(session *Session, groupId *string, ids []string) (bool, error) {
+	if c.AutoRefreshSession && session.RefreshToken != nil && *session.RefreshToken != "" &&
 		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
 		_, err := c.SessionRefresh(session, nil)
 		if err != nil {
@@ -779,8 +779,8 @@ func (c *Client) DemoteGroupUsers(session *Session, groupId string, ids []string
 }
 
 // EmitEvent submits an event for processing in the server's registered runtime custom events handler.
-func (c *Client) EmitEvent(session *Session, request ApiEvent) (bool, error) {
-	if c.AutoRefreshSession && session.RefreshToken != "" &&
+func (c *Client) EmitEvent(session *Session, request *ApiEvent) (bool, error) {
+	if c.AutoRefreshSession && session.RefreshToken != nil && *session.RefreshToken != "" &&
 		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
 		_, err := c.SessionRefresh(session, nil)
 		if err != nil {
@@ -798,7 +798,7 @@ func (c *Client) EmitEvent(session *Session, request ApiEvent) (bool, error) {
 
 // GetAccount fetches the current user's account.
 func (c *Client) GetAccount(session *Session) (*ApiAccount, error) {
-	if c.AutoRefreshSession && session.RefreshToken != "" &&
+	if c.AutoRefreshSession && session.RefreshToken != nil && *session.RefreshToken != "" &&
 		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
 		_, err := c.SessionRefresh(session, nil)
 		if err != nil {
@@ -815,8 +815,8 @@ func (c *Client) GetAccount(session *Session) (*ApiAccount, error) {
 }
 
 // GetSubscription fetches a subscription by product ID.
-func (c *Client) GetSubscription(session *Session, productId string) (*ApiValidatedSubscription, error) {
-	if c.AutoRefreshSession && session.RefreshToken != "" &&
+func (c *Client) GetSubscription(session *Session, productId *string) (*ApiValidatedSubscription, error) {
+	if c.AutoRefreshSession && session.RefreshToken != nil && *session.RefreshToken != "" &&
 		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
 		_, err := c.SessionRefresh(session, nil)
 		if err != nil {
@@ -833,7 +833,7 @@ func (c *Client) GetSubscription(session *Session, productId string) (*ApiValida
 
 // ImportFacebookFriends imports Facebook friends and adds them to a user's account.
 func (c *Client) ImportFacebookFriends(session *Session, request ApiAccountFacebook) (bool, error) {
-	if c.AutoRefreshSession && session.RefreshToken != "" &&
+	if c.AutoRefreshSession && session.RefreshToken == nil && *session.RefreshToken != "" &&
 		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
 		_, err := c.SessionRefresh(session, nil)
 		if err != nil {
@@ -841,7 +841,7 @@ func (c *Client) ImportFacebookFriends(session *Session, request ApiAccountFaceb
 		}
 	}
 
-	response, err := c.ApiClient.ImportFacebookFriends(session.Token, request, false, make(map[string]string))
+	response, err := c.ApiClient.ImportFacebookFriends(session.Token, &request, nil, make(map[string]string))
 	if err != nil {
 		return false, err
 	}
@@ -851,7 +851,7 @@ func (c *Client) ImportFacebookFriends(session *Session, request ApiAccountFaceb
 
 // ImportSteamFriends imports Steam friends and adds them to a user's account.
 func (c *Client) ImportSteamFriends(session *Session, request ApiAccountSteam, reset bool) (bool, error) {
-	if c.AutoRefreshSession && session.RefreshToken != "" &&
+	if c.AutoRefreshSession && session.RefreshToken != nil && *session.RefreshToken != "" &&
 		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
 		_, err := c.SessionRefresh(session, nil)
 		if err != nil {
@@ -859,7 +859,7 @@ func (c *Client) ImportSteamFriends(session *Session, request ApiAccountSteam, r
 		}
 	}
 
-	response, err := c.ApiClient.ImportSteamFriends(session.Token, request, reset, make(map[string]string))
+	response, err := c.ApiClient.ImportSteamFriends(session.Token, &request, &reset, make(map[string]string))
 	if err != nil {
 		return false, err
 	}
@@ -869,7 +869,7 @@ func (c *Client) ImportSteamFriends(session *Session, request ApiAccountSteam, r
 
 // FetchUsers fetches zero or more users by ID and/or username.
 func (c *Client) FetchUsers(session *Session, ids []string, usernames []string, facebookIds []string) (*Users, error) {
-	if c.AutoRefreshSession && session.RefreshToken != "" &&
+	if c.AutoRefreshSession && checkStr(session.RefreshToken) &&
 		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
 		_, err := c.SessionRefresh(session, nil)
 		if err != nil {
@@ -922,7 +922,7 @@ func (c *Client) FetchUsers(session *Session, ids []string, usernames []string, 
 
 // JoinGroup either joins a group that's open or sends a request to join a group that's closed.
 func (c *Client) JoinGroup(session *Session, groupId string) (bool, error) {
-	if c.AutoRefreshSession && session.RefreshToken != "" &&
+	if c.AutoRefreshSession && checkStr(session.RefreshToken) &&
 		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
 		_, err := c.SessionRefresh(session, nil)
 		if err != nil {
@@ -930,7 +930,7 @@ func (c *Client) JoinGroup(session *Session, groupId string) (bool, error) {
 		}
 	}
 
-	response, err := c.ApiClient.JoinGroup(session.Token, groupId, make(map[string]string))
+	response, err := c.ApiClient.JoinGroup(session.Token, &groupId, make(map[string]string))
 	if err != nil {
 		return false, err
 	}
@@ -940,7 +940,7 @@ func (c *Client) JoinGroup(session *Session, groupId string) (bool, error) {
 
 // JoinTournament allows a user to join a tournament by its ID.
 func (c *Client) JoinTournament(session *Session, tournamentId string) (bool, error) {
-	if c.AutoRefreshSession && session.RefreshToken != "" &&
+	if c.AutoRefreshSession && checkStr(session.RefreshToken) &&
 		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
 		_, err := c.SessionRefresh(session, nil)
 		if err != nil {
@@ -948,7 +948,7 @@ func (c *Client) JoinTournament(session *Session, tournamentId string) (bool, er
 		}
 	}
 
-	response, err := c.ApiClient.JoinTournament(session.Token, tournamentId, make(map[string]string))
+	response, err := c.ApiClient.JoinTournament(session.Token, &tournamentId, make(map[string]string))
 	if err != nil {
 		return false, err
 	}
@@ -958,7 +958,7 @@ func (c *Client) JoinTournament(session *Session, tournamentId string) (bool, er
 
 // KickGroupUsers kicks users from a group or declines their join requests.
 func (c *Client) KickGroupUsers(session *Session, groupId string, ids []string) (bool, error) {
-	if c.AutoRefreshSession && session.RefreshToken != "" &&
+	if c.AutoRefreshSession && checkStr(session.RefreshToken) &&
 		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
 		_, err := c.SessionRefresh(session, nil)
 		if err != nil {
@@ -966,7 +966,7 @@ func (c *Client) KickGroupUsers(session *Session, groupId string, ids []string) 
 		}
 	}
 
-	response, err := c.ApiClient.KickGroupUsers(session.Token, groupId, ids, make(map[string]string))
+	response, err := c.ApiClient.KickGroupUsers(session.Token, &groupId, ids, make(map[string]string))
 	if err != nil {
 		return false, err
 	}
@@ -976,7 +976,7 @@ func (c *Client) KickGroupUsers(session *Session, groupId string, ids []string) 
 
 // LeaveGroup allows a user to leave a group they are part of.
 func (c *Client) LeaveGroup(session *Session, groupId string) (bool, error) {
-	if c.AutoRefreshSession && session.RefreshToken != "" &&
+	if c.AutoRefreshSession && checkStr(session.RefreshToken) &&
 		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
 		_, err := c.SessionRefresh(session, nil)
 		if err != nil {
@@ -984,7 +984,7 @@ func (c *Client) LeaveGroup(session *Session, groupId string) (bool, error) {
 		}
 	}
 
-	response, err := c.ApiClient.LeaveGroup(session.Token, groupId, make(map[string]string))
+	response, err := c.ApiClient.LeaveGroup(session.Token, &groupId, make(map[string]string))
 	if err != nil {
 		return false, err
 	}
@@ -994,7 +994,7 @@ func (c *Client) LeaveGroup(session *Session, groupId string) (bool, error) {
 
 // ListChannelMessages retrieves a channel's message history.
 func (c *Client) ListChannelMessages(session *Session, channelId string, limit *int, forward *bool, cursor *string) (*ChannelMessageList, error) {
-	if c.AutoRefreshSession && session.RefreshToken != "" &&
+	if c.AutoRefreshSession && checkStr(session.RefreshToken) &&
 		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
 		_, err := c.SessionRefresh(session, nil)
 		if err != nil {
@@ -1002,7 +1002,7 @@ func (c *Client) ListChannelMessages(session *Session, channelId string, limit *
 		}
 	}
 
-	apiResponse, err := c.ApiClient.ListChannelMessages(session.Token, channelId, limit, forward, cursor, make(map[string]string))
+	apiResponse, err := c.ApiClient.ListChannelMessages(session.Token, &channelId, limit, forward, cursor, make(map[string]string))
 	if err != nil {
 		return nil, err
 	}
@@ -1048,7 +1048,7 @@ func (c *Client) ListChannelMessages(session *Session, channelId string, limit *
 
 // ListGroupUsers retrieves a group's users with optional state, limit, and cursor parameters.
 func (c *Client) ListGroupUsers(session *Session, groupId string, state *int, limit *int, cursor *string) (*GroupUserList, error) {
-	if c.AutoRefreshSession && session.RefreshToken != "" &&
+	if c.AutoRefreshSession && checkStr(session.RefreshToken) &&
 		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
 		_, err := c.SessionRefresh(session, nil)
 		if err != nil {
@@ -1056,7 +1056,7 @@ func (c *Client) ListGroupUsers(session *Session, groupId string, state *int, li
 		}
 	}
 
-	apiResponse, err := c.ApiClient.ListGroupUsers(session.Token, groupId, state, limit, cursor, make(map[string]string))
+	apiResponse, err := c.ApiClient.ListGroupUsers(session.Token, &groupId, state, limit, cursor, make(map[string]string))
 	if err != nil {
 		return nil, err
 	}
@@ -1107,7 +1107,7 @@ func (c *Client) ListGroupUsers(session *Session, groupId string, state *int, li
 
 // ListUserGroups lists a user's groups.
 func (c *Client) ListUserGroups(session *Session, userId string, state *int, limit *int, cursor *string) (*UserGroupList, error) {
-	if c.AutoRefreshSession && session.RefreshToken != "" &&
+	if c.AutoRefreshSession && checkStr(session.RefreshToken) &&
 		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
 		_, err := c.SessionRefresh(session, nil)
 		if err != nil {
@@ -1115,7 +1115,7 @@ func (c *Client) ListUserGroups(session *Session, userId string, state *int, lim
 		}
 	}
 
-	apiResponse, err := c.ApiClient.ListUserGroups(session.Token, userId, state, limit, cursor, make(map[string]string))
+	apiResponse, err := c.ApiClient.ListUserGroups(session.Token, &userId, state, limit, cursor, make(map[string]string))
 	if err != nil {
 		return nil, err
 	}
@@ -1162,7 +1162,7 @@ func (c *Client) ListUserGroups(session *Session, userId string, state *int, lim
 
 // ListGroups retrieves a list of groups based on the given filters.
 func (c *Client) ListGroups(session *Session, name *string, cursor *string, limit *int) (*GroupList, error) {
-	if c.AutoRefreshSession && session.RefreshToken != "" &&
+	if c.AutoRefreshSession && checkStr(session.RefreshToken) &&
 		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
 		_, err := c.SessionRefresh(session, nil)
 		if err != nil {
@@ -1218,7 +1218,7 @@ func (c *Client) ListGroups(session *Session, name *string, cursor *string, limi
 
 // LinkApple adds an Apple ID to the social profiles on the current user's account.
 func (c *Client) LinkApple(session *Session, request *ApiAccountApple) (bool, error) {
-	if c.AutoRefreshSession && session.RefreshToken != "" &&
+	if c.AutoRefreshSession && checkStr(session.RefreshToken) &&
 		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
 		_, err := c.SessionRefresh(session, nil)
 		if err != nil {
@@ -1226,7 +1226,7 @@ func (c *Client) LinkApple(session *Session, request *ApiAccountApple) (bool, er
 		}
 	}
 
-	response, err := c.ApiClient.LinkApple(session.Token, *request, make(map[string]string))
+	response, err := c.ApiClient.LinkApple(session.Token, request, make(map[string]string))
 	if err != nil {
 		return false, err
 	}
@@ -1236,7 +1236,7 @@ func (c *Client) LinkApple(session *Session, request *ApiAccountApple) (bool, er
 
 // LinkCustom adds a custom ID to the social profiles on the current user's account.
 func (c *Client) LinkCustom(session *Session, request *ApiAccountCustom) (bool, error) {
-	if c.AutoRefreshSession && session.RefreshToken != "" &&
+	if c.AutoRefreshSession && checkStr(session.RefreshToken) &&
 		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
 		_, err := c.SessionRefresh(session, nil)
 		if err != nil {
@@ -1244,7 +1244,7 @@ func (c *Client) LinkCustom(session *Session, request *ApiAccountCustom) (bool, 
 		}
 	}
 
-	response, err := c.ApiClient.LinkCustom(session.Token, *request, make(map[string]string))
+	response, err := c.ApiClient.LinkCustom(session.Token, request, make(map[string]string))
 	if err != nil {
 		return false, err
 	}
@@ -1254,7 +1254,7 @@ func (c *Client) LinkCustom(session *Session, request *ApiAccountCustom) (bool, 
 
 // LinkDevice adds a device ID to the social profiles on the current user's account.
 func (c *Client) LinkDevice(session *Session, request *ApiAccountDevice) (bool, error) {
-	if c.AutoRefreshSession && session.RefreshToken != "" &&
+	if c.AutoRefreshSession && checkStr(session.RefreshToken) &&
 		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
 		_, err := c.SessionRefresh(session, nil)
 		if err != nil {
@@ -1262,7 +1262,7 @@ func (c *Client) LinkDevice(session *Session, request *ApiAccountDevice) (bool, 
 		}
 	}
 
-	response, err := c.ApiClient.LinkDevice(session.Token, *request, make(map[string]string))
+	response, err := c.ApiClient.LinkDevice(session.Token, request, make(map[string]string))
 	if err != nil {
 		return false, err
 	}
@@ -1272,7 +1272,7 @@ func (c *Client) LinkDevice(session *Session, request *ApiAccountDevice) (bool, 
 
 // LinkEmail adds an email and password to the social profiles on the current user's account.
 func (c *Client) LinkEmail(session *Session, request *ApiAccountEmail) (bool, error) {
-	if c.AutoRefreshSession && session.RefreshToken != "" &&
+	if c.AutoRefreshSession && checkStr(session.RefreshToken) &&
 		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
 		_, err := c.SessionRefresh(session, nil)
 		if err != nil {
@@ -1280,7 +1280,7 @@ func (c *Client) LinkEmail(session *Session, request *ApiAccountEmail) (bool, er
 		}
 	}
 
-	response, err := c.ApiClient.LinkEmail(session.Token, *request, make(map[string]string))
+	response, err := c.ApiClient.LinkEmail(session.Token, request, make(map[string]string))
 	if err != nil {
 		return false, err
 	}
@@ -1290,7 +1290,7 @@ func (c *Client) LinkEmail(session *Session, request *ApiAccountEmail) (bool, er
 
 // LinkFacebook adds a Facebook ID to the social profiles on the current user's account.
 func (c *Client) LinkFacebook(session *Session, request *ApiAccountFacebook) (bool, error) {
-	if c.AutoRefreshSession && session.RefreshToken != "" &&
+	if c.AutoRefreshSession && checkStr(session.RefreshToken) &&
 		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
 		_, err := c.SessionRefresh(session, nil)
 		if err != nil {
@@ -1298,7 +1298,7 @@ func (c *Client) LinkFacebook(session *Session, request *ApiAccountFacebook) (bo
 		}
 	}
 
-	response, err := c.ApiClient.LinkFacebook(session.Token, *request, nil, make(map[string]string))
+	response, err := c.ApiClient.LinkFacebook(session.Token, request, nil, make(map[string]string))
 	if err != nil {
 		return false, err
 	}
@@ -1308,7 +1308,7 @@ func (c *Client) LinkFacebook(session *Session, request *ApiAccountFacebook) (bo
 
 // LinkFacebookInstant adds Facebook Instant to the social profiles on the current user's account.
 func (c *Client) LinkFacebookInstant(session *Session, request *ApiAccountFacebookInstantGame) (bool, error) {
-	if c.AutoRefreshSession && session.RefreshToken != "" &&
+	if c.AutoRefreshSession && checkStr(session.RefreshToken) &&
 		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
 		_, err := c.SessionRefresh(session, nil)
 		if err != nil {
@@ -1316,7 +1316,7 @@ func (c *Client) LinkFacebookInstant(session *Session, request *ApiAccountFacebo
 		}
 	}
 
-	response, err := c.ApiClient.LinkFacebookInstantGame(session.Token, *request, make(map[string]string))
+	response, err := c.ApiClient.LinkFacebookInstantGame(session.Token, request, make(map[string]string))
 	if err != nil {
 		return false, err
 	}
@@ -1326,7 +1326,7 @@ func (c *Client) LinkFacebookInstant(session *Session, request *ApiAccountFacebo
 
 // LinkGoogle adds a Google account to the social profiles on the current user's account.
 func (c *Client) LinkGoogle(session *Session, request *ApiAccountGoogle) (bool, error) {
-	if c.AutoRefreshSession && session.RefreshToken != "" &&
+	if c.AutoRefreshSession && checkStr(session.RefreshToken) &&
 		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
 		_, err := c.SessionRefresh(session, nil)
 		if err != nil {
@@ -1334,7 +1334,7 @@ func (c *Client) LinkGoogle(session *Session, request *ApiAccountGoogle) (bool, 
 		}
 	}
 
-	response, err := c.ApiClient.LinkGoogle(session.Token, *request, make(map[string]string))
+	response, err := c.ApiClient.LinkGoogle(session.Token, request, make(map[string]string))
 	if err != nil {
 		return false, err
 	}
@@ -1344,7 +1344,7 @@ func (c *Client) LinkGoogle(session *Session, request *ApiAccountGoogle) (bool, 
 
 // LinkGameCenter adds GameCenter to the social profiles on the current user's account.
 func (c *Client) LinkGameCenter(session *Session, request *ApiAccountGameCenter) (bool, error) {
-	if c.AutoRefreshSession && session.RefreshToken != "" &&
+	if c.AutoRefreshSession && checkStr(session.RefreshToken) &&
 		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
 		_, err := c.SessionRefresh(session, nil)
 		if err != nil {
@@ -1352,7 +1352,7 @@ func (c *Client) LinkGameCenter(session *Session, request *ApiAccountGameCenter)
 		}
 	}
 
-	response, err := c.ApiClient.LinkGameCenter(session.Token, *request, make(map[string]string))
+	response, err := c.ApiClient.LinkGameCenter(session.Token, request, make(map[string]string))
 	if err != nil {
 		return false, err
 	}
@@ -1362,7 +1362,7 @@ func (c *Client) LinkGameCenter(session *Session, request *ApiAccountGameCenter)
 
 // LinkSteam adds Steam to the social profiles on the current user's account.
 func (c *Client) LinkSteam(session *Session, request *ApiLinkSteamRequest) (bool, error) {
-	if c.AutoRefreshSession && session.RefreshToken != "" &&
+	if c.AutoRefreshSession && checkStr(session.RefreshToken) &&
 		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
 		_, err := c.SessionRefresh(session, nil)
 		if err != nil {
@@ -1370,7 +1370,7 @@ func (c *Client) LinkSteam(session *Session, request *ApiLinkSteamRequest) (bool
 		}
 	}
 
-	response, err := c.ApiClient.LinkSteam(session.Token, *request, make(map[string]string))
+	response, err := c.ApiClient.LinkSteam(session.Token, request, make(map[string]string))
 	if err != nil {
 		return false, err
 	}
@@ -1380,7 +1380,7 @@ func (c *Client) LinkSteam(session *Session, request *ApiLinkSteamRequest) (bool
 
 // ListFriends lists all friends for the current user.
 func (c *Client) ListFriends(session *Session, state *int, limit *int, cursor *string) (*Friends, error) {
-	if c.AutoRefreshSession && session.RefreshToken != "" &&
+	if c.AutoRefreshSession && checkStr(session.RefreshToken) &&
 		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
 		_, err := c.SessionRefresh(session, nil)
 		if err != nil {
@@ -1440,7 +1440,7 @@ func (c *Client) ListFriends(session *Session, state *int, limit *int, cursor *s
 
 // ListFriendsOfFriends lists the friends of friends for the current user.
 func (c *Client) ListFriendsOfFriends(session *Session, limit *int, cursor *string) (*FriendsOfFriends, error) {
-	if c.AutoRefreshSession && session.RefreshToken != "" &&
+	if c.AutoRefreshSession && checkStr(session.RefreshToken) &&
 		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
 		_, err := c.SessionRefresh(session, nil)
 		if err != nil {
@@ -1500,7 +1500,7 @@ func (c *Client) ListFriendsOfFriends(session *Session, limit *int, cursor *stri
 
 // ListLeaderboardRecords lists the leaderboard records with optional ownerIds, pagination, and expiry filters.
 func (c *Client) ListLeaderboardRecords(session *Session, leaderboardId string, ownerIds []string, limit *int, cursor *string, expiry *string) (*LeaderboardRecordList, error) {
-	if c.AutoRefreshSession && session.RefreshToken != "" &&
+	if c.AutoRefreshSession && checkStr(session.RefreshToken) &&
 		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
 		_, err := c.SessionRefresh(session, nil)
 		if err != nil {
@@ -1508,7 +1508,7 @@ func (c *Client) ListLeaderboardRecords(session *Session, leaderboardId string, 
 		}
 	}
 
-	response, err := c.ApiClient.ListLeaderboardRecords(session.Token, leaderboardId, ownerIds, limit, cursor, expiry, make(map[string]string))
+	response, err := c.ApiClient.ListLeaderboardRecords(session.Token, &leaderboardId, ownerIds, limit, cursor, expiry, make(map[string]string))
 	if err != nil {
 		return nil, err
 	}
@@ -1574,7 +1574,7 @@ func (c *Client) ListLeaderboardRecords(session *Session, leaderboardId string, 
 }
 
 func (c *Client) ListLeaderboardRecordsAroundOwner(session *Session, leaderboardId string, ownerId string, limit *int, expiry *string, cursor *string) (*LeaderboardRecordList, error) {
-	if c.AutoRefreshSession && session.RefreshToken != "" &&
+	if c.AutoRefreshSession && checkStr(session.RefreshToken) &&
 		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
 		_, err := c.SessionRefresh(session, nil)
 		if err != nil {
@@ -1582,7 +1582,7 @@ func (c *Client) ListLeaderboardRecordsAroundOwner(session *Session, leaderboard
 		}
 	}
 
-	response, err := c.ApiClient.ListLeaderboardRecordsAroundOwner(session.Token, leaderboardId, ownerId, limit, expiry, cursor, make(map[string]string))
+	response, err := c.ApiClient.ListLeaderboardRecordsAroundOwner(session.Token, &leaderboardId, &ownerId, limit, expiry, cursor, make(map[string]string))
 	if err != nil {
 		return nil, err
 	}
@@ -1648,7 +1648,7 @@ func (c *Client) ListLeaderboardRecordsAroundOwner(session *Session, leaderboard
 
 // ListMatches fetches a list of running matches.
 func (c *Client) ListMatches(session *Session, limit *int, authoritative *bool, label *string, minSize *int, maxSize *int, query *string) (*ApiMatchList, error) {
-	if c.AutoRefreshSession && session.RefreshToken != "" &&
+	if c.AutoRefreshSession && checkStr(session.RefreshToken) &&
 		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
 		_, err := c.SessionRefresh(session, nil)
 		if err != nil {
@@ -1665,7 +1665,7 @@ func (c *Client) ListMatches(session *Session, limit *int, authoritative *bool, 
 
 // ListNotifications fetches a list of notifications.
 func (c *Client) ListNotifications(session *Session, limit *int, cacheableCursor *string) (*NotificationList, error) {
-	if c.AutoRefreshSession && session.RefreshToken != "" &&
+	if c.AutoRefreshSession && checkStr(session.RefreshToken) &&
 		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
 		_, err := c.SessionRefresh(session, nil)
 		if err != nil {
@@ -1711,7 +1711,7 @@ func (c *Client) ListNotifications(session *Session, limit *int, cacheableCursor
 
 // ListStorageObjects retrieves a list of storage objects.
 func (c *Client) ListStorageObjects(session *Session, collection string, userID *string, limit *int, cursor *string) (*StorageObjectList, error) {
-	if c.AutoRefreshSession && session.RefreshToken != "" &&
+	if c.AutoRefreshSession && checkStr(session.RefreshToken) &&
 		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
 		_, err := c.SessionRefresh(session, nil)
 		if err != nil {
@@ -1719,7 +1719,7 @@ func (c *Client) ListStorageObjects(session *Session, collection string, userID 
 		}
 	}
 
-	response, err := c.ApiClient.ListStorageObjects(session.Token, collection, userID, limit, cursor, make(map[string]string))
+	response, err := c.ApiClient.ListStorageObjects(session.Token, &collection, userID, limit, cursor, make(map[string]string))
 	if err != nil {
 		return nil, err
 	}
@@ -1778,7 +1778,7 @@ func (c *Client) ListStorageObjects(session *Session, collection string, userID 
 
 // ListTournaments retrieves a list of current or upcoming tournaments.
 func (c *Client) ListTournaments(session *Session, categoryStart *int, categoryEnd *int, startTime *int64, endTime *int64, limit *int, cursor *string) (*TournamentList, error) {
-	if c.AutoRefreshSession && session.RefreshToken != "" &&
+	if c.AutoRefreshSession && checkStr(session.RefreshToken) &&
 		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
 		_, err := c.SessionRefresh(session, nil)
 		if err != nil {
@@ -1892,7 +1892,7 @@ func (c *Client) ListSubscriptions(session *Session, cursor *string, limit *int)
 	}
 
 	apiSubscriptionList, err := c.ApiClient.ListSubscriptions(
-		session.Token, ApiListSubscriptionsRequest{
+		session.Token, &ApiListSubscriptionsRequest{
 			Cursor: cursor,
 			Limit:  limit,
 		},
@@ -1950,7 +1950,7 @@ func (c *Client) ListTournamentRecords(
 	// Call the API to list tournament records.
 	apiTournamentRecordList, err := c.ApiClient.ListTournamentRecords(
 		session.Token,
-		tournamentId,
+		&tournamentId,
 		ownerIds,
 		limit,
 		cursor,
@@ -2037,7 +2037,7 @@ func (c *Client) ListTournamentRecordsAroundOwner(
 	expiry *string,
 	cursor *string,
 ) (*TournamentRecordList, error) {
-	if c.AutoRefreshSession && session.RefreshToken != "" &&
+	if c.AutoRefreshSession && checkStr(session.RefreshToken) &&
 		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
 		if _, err := c.SessionRefresh(session, nil); err != nil {
 			return nil, err
@@ -2047,8 +2047,8 @@ func (c *Client) ListTournamentRecordsAroundOwner(
 	// Call the API to get tournament records around owner.
 	apiTournamentRecordList, err := c.ApiClient.ListTournamentRecordsAroundOwner(
 		session.Token,
-		tournamentId,
-		ownerId,
+		&tournamentId,
+		&ownerId,
 		limit,
 		expiry,
 		cursor,
@@ -2127,14 +2127,14 @@ func (c *Client) ListTournamentRecordsAroundOwner(
 
 // PromoteGroupUsers promotes the users in a group to the next role up.
 func (c *Client) PromoteGroupUsers(session *Session, groupId string, ids []string) (bool, error) {
-	if c.AutoRefreshSession && session.RefreshToken != "" &&
+	if c.AutoRefreshSession && checkStr(session.RefreshToken) &&
 		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
 		if _, err := c.SessionRefresh(session, nil); err != nil {
 			return false, err
 		}
 	}
 
-	success, err := c.ApiClient.PromoteGroupUsers(session.Token, groupId, ids, make(map[string]string))
+	success, err := c.ApiClient.PromoteGroupUsers(session.Token, &groupId, ids, make(map[string]string))
 	if err != nil {
 		return false, err
 	}
@@ -2143,14 +2143,14 @@ func (c *Client) PromoteGroupUsers(session *Session, groupId string, ids []strin
 
 // ReadStorageObjects fetches storage objects.
 func (c *Client) ReadStorageObjects(session *Session, request *ApiReadStorageObjectsRequest) (*StorageObjects, error) {
-	if c.AutoRefreshSession && session.RefreshToken != "" &&
+	if c.AutoRefreshSession && checkStr(session.RefreshToken) &&
 		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
 		if _, err := c.SessionRefresh(session, nil); err != nil {
 			return nil, err
 		}
 	}
 
-	apiResponse, err := c.ApiClient.ReadStorageObjects(session.Token, *request, make(map[string]string))
+	apiResponse, err := c.ApiClient.ReadStorageObjects(session.Token, request, make(map[string]string))
 	if err != nil {
 		return nil, err
 	}
@@ -2193,7 +2193,7 @@ func (c *Client) ReadStorageObjects(session *Session, request *ApiReadStorageObj
 
 // Rpc executes an RPC function on the server.
 func (c *Client) Rpc(session *Session, id string, input map[string]interface{}) (*RpcResponse, error) {
-	if c.AutoRefreshSession && session.RefreshToken != "" &&
+	if c.AutoRefreshSession && checkStr(session.RefreshToken) &&
 		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
 		if _, err := c.SessionRefresh(session, nil); err != nil {
 			return nil, err
@@ -2205,9 +2205,10 @@ func (c *Client) Rpc(session *Session, id string, input map[string]interface{}) 
 	if err != nil {
 		return nil, fmt.Errorf("failed to serialize input to JSON: %w", err)
 	}
+	jsonStr := string(inputJson)
 
 	// Execute the RPC function on the API client
-	apiResponse, err := c.ApiClient.RpcFunc(session.Token, id, string(inputJson), nil, make(map[string]string))
+	apiResponse, err := c.ApiClient.RpcFunc(session.Token, &id, &jsonStr, nil, make(map[string]string))
 	if err != nil {
 		return nil, err
 	}
@@ -2243,7 +2244,7 @@ func (c *Client) RpcHttpKey(httpKey, id string, input map[string]interface{}) (*
 	}
 
 	// Execute the RPC function on the API client
-	apiResponse, err := c.ApiClient.RpcFunc2("", id, &inputJson, &httpKey, make(map[string]string))
+	apiResponse, err := c.ApiClient.RpcFunc2(nil, &id, &inputJson, &httpKey, make(map[string]string))
 	if err != nil {
 		return nil, err
 	}
@@ -2268,7 +2269,7 @@ func (c *Client) RpcHttpKey(httpKey, id string, input map[string]interface{}) (*
 
 // SessionLogout logs out a session, invalidates a refresh token, or logs out all sessions/refresh tokens for a user.
 func (c *Client) SessionLogout(session *Session, token, refreshToken string) (bool, error) {
-	if c.AutoRefreshSession && session.RefreshToken != "" &&
+	if c.AutoRefreshSession && checkStr(session.RefreshToken) &&
 		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
 		if _, err := c.SessionRefresh(session, nil); err != nil {
 			return false, err
@@ -2282,7 +2283,7 @@ func (c *Client) SessionLogout(session *Session, token, refreshToken string) (bo
 	}
 
 	// Call the API client's session logout function
-	response, err := c.ApiClient.SessionLogout(session.Token, logoutRequest, make(map[string]string))
+	response, err := c.ApiClient.SessionLogout(session.Token, &logoutRequest, make(map[string]string))
 	if err != nil {
 		return false, err
 	}
@@ -2296,16 +2297,16 @@ func (c *Client) SessionRefresh(session *Session, vars map[string]string) (*Sess
 		return nil, fmt.Errorf("cannot refresh a null session")
 	}
 
-	if session.ExpiresAt != nil && *session.ExpiresAt-session.CreatedAt < 70 {
+	if session.ExpiresAt != nil && session.CreatedAt != nil && *session.ExpiresAt-*session.CreatedAt < 70 {
 		log.Println("Session lifetime too short, please set '--session.token_expiry_sec' option. See the documentation for more info: https://heroiclabs.com/docs/nakama/getting-started/configuration/#session")
 	}
 
-	if session.RefreshExpiresAt != nil && *session.RefreshExpiresAt-session.CreatedAt < 3700 {
+	if session.RefreshExpiresAt != nil && session.CreatedAt != nil && *session.RefreshExpiresAt-*session.CreatedAt < 3700 {
 		log.Println("Session refresh lifetime too short, please set '--session.refresh_token_expiry_sec' option. See the documentation for more info: https://heroiclabs.com/docs/nakama/getting-started/configuration/#session")
 	}
 
-	apiSession, err := c.ApiClient.SessionRefresh(c.ServerKey, "", ApiSessionRefreshRequest{
-		Token: &session.RefreshToken,
+	apiSession, err := c.ApiClient.SessionRefresh(&c.ServerKey, nil, &ApiSessionRefreshRequest{
+		Token: session.RefreshToken,
 		Vars:  vars,
 	}, make(map[string]string))
 
@@ -2319,14 +2320,14 @@ func (c *Client) SessionRefresh(session *Session, vars map[string]string) (*Sess
 
 // UnlinkApple removes the Apple ID from the social profiles on the current user's account.
 func (c *Client) UnlinkApple(session *Session, request *ApiAccountApple) (bool, error) {
-	if c.AutoRefreshSession && session.RefreshToken != "" &&
+	if c.AutoRefreshSession && checkStr(session.RefreshToken) &&
 		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
 		if _, err := c.SessionRefresh(session, nil); err != nil {
 			return false, err
 		}
 	}
 
-	response, err := c.ApiClient.UnlinkApple(session.Token, *request, make(map[string]string))
+	response, err := c.ApiClient.UnlinkApple(session.Token, request, make(map[string]string))
 	if err != nil {
 		return false, err
 	}
@@ -2336,14 +2337,14 @@ func (c *Client) UnlinkApple(session *Session, request *ApiAccountApple) (bool, 
 
 // UnlinkCustom removes a custom ID from the social profiles on the current user's account.
 func (c *Client) UnlinkCustom(session *Session, request *ApiAccountCustom) (bool, error) {
-	if c.AutoRefreshSession && session.RefreshToken != "" &&
+	if c.AutoRefreshSession && checkStr(session.RefreshToken) &&
 		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
 		if _, err := c.SessionRefresh(session, nil); err != nil {
 			return false, err
 		}
 	}
 
-	response, err := c.ApiClient.UnlinkCustom(session.Token, *request, make(map[string]string))
+	response, err := c.ApiClient.UnlinkCustom(session.Token, request, make(map[string]string))
 	if err != nil {
 		return false, err
 	}
@@ -2353,14 +2354,14 @@ func (c *Client) UnlinkCustom(session *Session, request *ApiAccountCustom) (bool
 
 // UnlinkDevice removes a device ID from the social profiles on the current user's account.
 func (c *Client) UnlinkDevice(session *Session, request *ApiAccountDevice) (bool, error) {
-	if c.AutoRefreshSession && session.RefreshToken != "" &&
+	if c.AutoRefreshSession && checkStr(session.RefreshToken) &&
 		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
 		if _, err := c.SessionRefresh(session, nil); err != nil {
 			return false, err
 		}
 	}
 
-	response, err := c.ApiClient.UnlinkDevice(session.Token, *request, make(map[string]string))
+	response, err := c.ApiClient.UnlinkDevice(session.Token, request, make(map[string]string))
 	if err != nil {
 		return false, err
 	}
@@ -2370,14 +2371,14 @@ func (c *Client) UnlinkDevice(session *Session, request *ApiAccountDevice) (bool
 
 // UnlinkEmail removes an email+password from the social profiles on the current user's account.
 func (c *Client) UnlinkEmail(session *Session, request *ApiAccountEmail) (bool, error) {
-	if c.AutoRefreshSession && session.RefreshToken != "" &&
+	if c.AutoRefreshSession && checkStr(session.RefreshToken) &&
 		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
 		if _, err := c.SessionRefresh(session, nil); err != nil {
 			return false, err
 		}
 	}
 
-	response, err := c.ApiClient.UnlinkEmail(session.Token, *request, make(map[string]string))
+	response, err := c.ApiClient.UnlinkEmail(session.Token, request, make(map[string]string))
 	if err != nil {
 		return false, err
 	}
@@ -2387,14 +2388,14 @@ func (c *Client) UnlinkEmail(session *Session, request *ApiAccountEmail) (bool, 
 
 // UnlinkFacebook removes the Facebook ID from the social profiles on the current user's account.
 func (c *Client) UnlinkFacebook(session *Session, request *ApiAccountFacebook) (bool, error) {
-	if c.AutoRefreshSession && session.RefreshToken != "" &&
+	if c.AutoRefreshSession && checkStr(session.RefreshToken) &&
 		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
 		if _, err := c.SessionRefresh(session, nil); err != nil {
 			return false, err
 		}
 	}
 
-	response, err := c.ApiClient.UnlinkFacebook(session.Token, *request, make(map[string]string))
+	response, err := c.ApiClient.UnlinkFacebook(session.Token, request, make(map[string]string))
 	if err != nil {
 		return false, err
 	}
@@ -2404,14 +2405,14 @@ func (c *Client) UnlinkFacebook(session *Session, request *ApiAccountFacebook) (
 
 // UnlinkFacebookInstantGame removes Facebook Instant social profiles from the current user's account.
 func (c *Client) UnlinkFacebookInstantGame(session *Session, request *ApiAccountFacebookInstantGame) (bool, error) {
-	if c.AutoRefreshSession && session.RefreshToken != "" &&
+	if c.AutoRefreshSession && checkStr(session.RefreshToken) &&
 		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
 		if _, err := c.SessionRefresh(session, nil); err != nil {
 			return false, err
 		}
 	}
 
-	response, err := c.ApiClient.UnlinkFacebookInstantGame(session.Token, *request, make(map[string]string))
+	response, err := c.ApiClient.UnlinkFacebookInstantGame(session.Token, request, make(map[string]string))
 	if err != nil {
 		return false, err
 	}
@@ -2421,14 +2422,14 @@ func (c *Client) UnlinkFacebookInstantGame(session *Session, request *ApiAccount
 
 // UnlinkGoogle removes the Google ID from the social profiles on the current user's account.
 func (c *Client) UnlinkGoogle(session *Session, request *ApiAccountGoogle) (bool, error) {
-	if c.AutoRefreshSession && session.RefreshToken != "" &&
+	if c.AutoRefreshSession && checkStr(session.RefreshToken) &&
 		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
 		if _, err := c.SessionRefresh(session, nil); err != nil {
 			return false, err
 		}
 	}
 
-	response, err := c.ApiClient.UnlinkGoogle(session.Token, *request, make(map[string]string))
+	response, err := c.ApiClient.UnlinkGoogle(session.Token, request, make(map[string]string))
 	if err != nil {
 		return false, err
 	}
@@ -2438,14 +2439,14 @@ func (c *Client) UnlinkGoogle(session *Session, request *ApiAccountGoogle) (bool
 
 // UnlinkGameCenter removes GameCenter from the social profiles on the current user's account.
 func (c *Client) UnlinkGameCenter(session *Session, request *ApiAccountGameCenter) (bool, error) {
-	if c.AutoRefreshSession && session.RefreshToken != "" &&
+	if c.AutoRefreshSession && checkStr(session.RefreshToken) &&
 		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
 		if _, err := c.SessionRefresh(session, nil); err != nil {
 			return false, err
 		}
 	}
 
-	response, err := c.ApiClient.UnlinkGameCenter(session.Token, *request, make(map[string]string))
+	response, err := c.ApiClient.UnlinkGameCenter(session.Token, request, make(map[string]string))
 	if err != nil {
 		return false, err
 	}
@@ -2455,14 +2456,14 @@ func (c *Client) UnlinkGameCenter(session *Session, request *ApiAccountGameCente
 
 // UnlinkSteam removes Steam from the social profiles on the current user's account.
 func (c *Client) UnlinkSteam(session *Session, request *ApiAccountSteam) (bool, error) {
-	if c.AutoRefreshSession && session.RefreshToken != "" &&
+	if c.AutoRefreshSession && checkStr(session.RefreshToken) &&
 		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
 		if _, err := c.SessionRefresh(session, nil); err != nil {
 			return false, err
 		}
 	}
 
-	response, err := c.ApiClient.UnlinkSteam(session.Token, *request, make(map[string]string))
+	response, err := c.ApiClient.UnlinkSteam(session.Token, request, make(map[string]string))
 	if err != nil {
 		return false, err
 	}
@@ -2472,14 +2473,14 @@ func (c *Client) UnlinkSteam(session *Session, request *ApiAccountSteam) (bool, 
 
 // UpdateAccount updates fields in the current user's account.
 func (c *Client) UpdateAccount(session *Session, request *ApiUpdateAccountRequest) (bool, error) {
-	if c.AutoRefreshSession && session.RefreshToken != "" &&
+	if c.AutoRefreshSession && checkStr(session.RefreshToken) &&
 		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
 		if _, err := c.SessionRefresh(session, nil); err != nil {
 			return false, err
 		}
 	}
 
-	response, err := c.ApiClient.UpdateAccount(session.Token, *request, make(map[string]string))
+	response, err := c.ApiClient.UpdateAccount(session.Token, request, make(map[string]string))
 	if err != nil {
 		return false, err
 	}
@@ -2489,14 +2490,14 @@ func (c *Client) UpdateAccount(session *Session, request *ApiUpdateAccountReques
 
 // UpdateGroup updates a group the user is part of and has permissions to update.
 func (c *Client) UpdateGroup(session *Session, groupId string, request *ApiUpdateGroupRequest) (bool, error) {
-	if c.AutoRefreshSession && session.RefreshToken != "" &&
+	if c.AutoRefreshSession && checkStr(session.RefreshToken) &&
 		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
 		if _, err := c.SessionRefresh(session, nil); err != nil {
 			return false, err
 		}
 	}
 
-	response, err := c.ApiClient.UpdateGroup(session.Token, groupId, *request, make(map[string]string))
+	response, err := c.ApiClient.UpdateGroup(session.Token, &groupId, request, make(map[string]string))
 	if err != nil {
 		return false, err
 	}
@@ -2506,14 +2507,14 @@ func (c *Client) UpdateGroup(session *Session, groupId string, request *ApiUpdat
 
 // ValidatePurchaseApple validates an Apple IAP receipt.
 func (c *Client) ValidatePurchaseApple(session *Session, receipt *string, persist bool) (*ApiValidatePurchaseResponse, error) {
-	if c.AutoRefreshSession && session.RefreshToken != "" &&
+	if c.AutoRefreshSession && checkStr(session.RefreshToken) &&
 		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
 		if _, err := c.SessionRefresh(session, nil); err != nil {
 			return nil, err
 		}
 	}
 
-	response, err := c.ApiClient.ValidatePurchaseApple(session.Token, ApiValidatePurchaseAppleRequest{
+	response, err := c.ApiClient.ValidatePurchaseApple(session.Token, &ApiValidatePurchaseAppleRequest{
 		Receipt: receipt,
 		Persist: &persist,
 	}, make(map[string]string))
@@ -2526,14 +2527,14 @@ func (c *Client) ValidatePurchaseApple(session *Session, receipt *string, persis
 
 // ValidatePurchaseFacebookInstant validates a Facebook Instant IAP receipt.
 func (c *Client) ValidatePurchaseFacebookInstant(session *Session, signedRequest *string, persist bool) (*ApiValidatePurchaseResponse, error) {
-	if c.AutoRefreshSession && session.RefreshToken != "" &&
+	if c.AutoRefreshSession && checkStr(session.RefreshToken) &&
 		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
 		if _, err := c.SessionRefresh(session, nil); err != nil {
 			return nil, err
 		}
 	}
 
-	response, err := c.ApiClient.ValidatePurchaseFacebookInstant(session.Token, ApiValidatePurchaseFacebookInstantRequest{
+	response, err := c.ApiClient.ValidatePurchaseFacebookInstant(session.Token, &ApiValidatePurchaseFacebookInstantRequest{
 		SignedRequest: signedRequest,
 		Persist:       &persist,
 	}, make(map[string]string))
@@ -2546,14 +2547,14 @@ func (c *Client) ValidatePurchaseFacebookInstant(session *Session, signedRequest
 
 // ValidatePurchaseGoogle validates a Google IAP receipt.
 func (c *Client) ValidatePurchaseGoogle(session *Session, purchase *string, persist bool) (*ApiValidatePurchaseResponse, error) {
-	if c.AutoRefreshSession && session.RefreshToken != "" &&
+	if c.AutoRefreshSession && checkStr(session.RefreshToken) &&
 		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
 		if _, err := c.SessionRefresh(session, nil); err != nil {
 			return nil, err
 		}
 	}
 
-	response, err := c.ApiClient.ValidatePurchaseGoogle(session.Token, ApiValidatePurchaseGoogleRequest{
+	response, err := c.ApiClient.ValidatePurchaseGoogle(session.Token, &ApiValidatePurchaseGoogleRequest{
 		Purchase: purchase,
 		Persist:  &persist,
 	}, make(map[string]string))
@@ -2566,14 +2567,14 @@ func (c *Client) ValidatePurchaseGoogle(session *Session, purchase *string, pers
 
 // ValidatePurchaseHuawei validates a Huawei IAP receipt.
 func (c *Client) ValidatePurchaseHuawei(session *Session, purchase *string, signature *string, persist bool) (*ApiValidatePurchaseResponse, error) {
-	if c.AutoRefreshSession && session.RefreshToken != "" &&
+	if c.AutoRefreshSession && checkStr(session.RefreshToken) &&
 		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
 		if _, err := c.SessionRefresh(session, nil); err != nil {
 			return nil, err
 		}
 	}
 
-	response, err := c.ApiClient.ValidatePurchaseHuawei(session.Token, ApiValidatePurchaseHuaweiRequest{
+	response, err := c.ApiClient.ValidatePurchaseHuawei(session.Token, &ApiValidatePurchaseHuaweiRequest{
 		Purchase:  purchase,
 		Signature: signature,
 		Persist:   &persist,
@@ -2587,14 +2588,14 @@ func (c *Client) ValidatePurchaseHuawei(session *Session, purchase *string, sign
 
 // ValidateSubscriptionApple validates an Apple subscription receipt.
 func (c *Client) ValidateSubscriptionApple(session *Session, receipt *string, persist bool) (*ApiValidateSubscriptionResponse, error) {
-	if c.AutoRefreshSession && session.RefreshToken != "" &&
+	if c.AutoRefreshSession && checkStr(session.RefreshToken) &&
 		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
 		if _, err := c.SessionRefresh(session, nil); err != nil {
 			return nil, err
 		}
 	}
 
-	response, err := c.ApiClient.ValidateSubscriptionApple(session.Token, ApiValidateSubscriptionAppleRequest{
+	response, err := c.ApiClient.ValidateSubscriptionApple(session.Token, &ApiValidateSubscriptionAppleRequest{
 		Receipt: receipt,
 		Persist: &persist,
 	}, make(map[string]string))
@@ -2607,14 +2608,14 @@ func (c *Client) ValidateSubscriptionApple(session *Session, receipt *string, pe
 
 // ValidateSubscriptionGoogle validates a Google subscription receipt.
 func (c *Client) ValidateSubscriptionGoogle(session *Session, receipt *string, persist bool) (*ApiValidateSubscriptionResponse, error) {
-	if c.AutoRefreshSession && session.RefreshToken != "" &&
+	if c.AutoRefreshSession && checkStr(session.RefreshToken) &&
 		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
 		if _, err := c.SessionRefresh(session, nil); err != nil {
 			return nil, err
 		}
 	}
 
-	response, err := c.ApiClient.ValidateSubscriptionGoogle(session.Token, ApiValidateSubscriptionGoogleRequest{
+	response, err := c.ApiClient.ValidateSubscriptionGoogle(session.Token, &ApiValidateSubscriptionGoogleRequest{
 		Receipt: receipt,
 		Persist: &persist,
 	}, make(map[string]string))
@@ -2627,7 +2628,7 @@ func (c *Client) ValidateSubscriptionGoogle(session *Session, receipt *string, p
 
 // WriteLeaderboardRecord writes a record to a leaderboard.
 func (c *Client) WriteLeaderboardRecord(session *Session, leaderboardId string, request *WriteLeaderboardRecord) (*LeaderboardRecord, error) {
-	if c.AutoRefreshSession && session.RefreshToken != "" &&
+	if c.AutoRefreshSession && checkStr(session.RefreshToken) &&
 		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
 		if _, err := c.SessionRefresh(session, nil); err != nil {
 			return nil, err
@@ -2636,8 +2637,8 @@ func (c *Client) WriteLeaderboardRecord(session *Session, leaderboardId string, 
 
 	response, err := c.ApiClient.WriteLeaderboardRecord(
 		session.Token,
-		leaderboardId,
-		WriteLeaderboardRecordRequestLeaderboardRecordWrite{
+		&leaderboardId,
+		&WriteLeaderboardRecordRequestLeaderboardRecordWrite{
 			Metadata: func() *string {
 				if request.Metadata != nil {
 					metadata := fmt.Sprintf("%s", request.Metadata)
@@ -2680,16 +2681,16 @@ func (c *Client) WriteLeaderboardRecord(session *Session, leaderboardId string, 
 
 // WriteStorageObjects writes storage objects.
 func (c *Client) WriteStorageObjects(session *Session, objects []WriteStorageObject) (*ApiStorageObjectAcks, error) {
-	if c.AutoRefreshSession && session.RefreshToken != "" &&
+	if c.AutoRefreshSession && checkStr(session.RefreshToken) &&
 		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
 		if _, err := c.SessionRefresh(session, nil); err != nil {
 			return nil, err
 		}
 	}
 
-	request := ApiWriteStorageObjectsRequest{Objects: &[]ApiWriteStorageObject{}}
+	request := ApiWriteStorageObjectsRequest{Objects: []*ApiWriteStorageObject{}}
 	for _, o := range objects {
-		*request.Objects = append(*request.Objects, ApiWriteStorageObject{
+		request.Objects = append(request.Objects, &ApiWriteStorageObject{
 			Collection:      o.Collection,
 			Key:             o.Key,
 			PermissionRead:  o.PermissionRead,
@@ -2699,7 +2700,7 @@ func (c *Client) WriteStorageObjects(session *Session, objects []WriteStorageObj
 		})
 	}
 
-	storageObjects, err := c.ApiClient.WriteStorageObjects(session.Token, request, make(map[string]string))
+	storageObjects, err := c.ApiClient.WriteStorageObjects(session.Token, &request, make(map[string]string))
 	if err != nil {
 		return nil, err
 	}
@@ -2709,7 +2710,7 @@ func (c *Client) WriteStorageObjects(session *Session, objects []WriteStorageObj
 
 // WriteTournamentRecord writes a record to a tournament.
 func (c *Client) WriteTournamentRecord(session *Session, tournamentId string, request *WriteTournamentRecord) (*LeaderboardRecord, error) {
-	if c.AutoRefreshSession && session.RefreshToken != "" &&
+	if c.AutoRefreshSession && checkStr(session.RefreshToken) &&
 		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
 		if _, err := c.SessionRefresh(session, nil); err != nil {
 			return nil, err
@@ -2718,8 +2719,8 @@ func (c *Client) WriteTournamentRecord(session *Session, tournamentId string, re
 
 	response, err := c.ApiClient.WriteTournamentRecord(
 		session.Token,
-		tournamentId,
-		WriteTournamentRecordRequestTournamentRecordWrite{
+		&tournamentId,
+		&WriteTournamentRecordRequestTournamentRecordWrite{
 			Metadata: func() *string {
 				if request.Metadata != nil {
 					metadata := fmt.Sprintf("%s", request.Metadata)
