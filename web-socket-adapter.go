@@ -2,7 +2,6 @@ package nakama
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/url"
 	"sync"
@@ -11,6 +10,8 @@ import (
 	"github.com/coder/websocket"
 	"github.com/gwaylib/errors"
 	"github.com/gwaylib/log"
+	"github.com/heroiclabs/nakama-common/rtapi"
+	"google.golang.org/protobuf/encoding/protojson"
 )
 
 // WebSocketAdapter is a text-based WebSocket adapter for transmitting payloads over UTF-8.
@@ -73,7 +74,7 @@ func (w *WebSocketAdapter) Connect(scheme, host, port string, createStatus bool,
 }
 
 // Send sends a message through the WebSocket connection.
-func (w *WebSocketAdapter) Send(message interface{}) error {
+func (w *WebSocketAdapter) Send(message *rtapi.Envelope) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
@@ -81,17 +82,17 @@ func (w *WebSocketAdapter) Send(message interface{}) error {
 		return fmt.Errorf("WebSocket is not connected")
 	}
 
-	msgBytes, err := json.Marshal(message)
+	//msgBytes, err := json.Marshal(message)
+	msgBytes, err := protojson.Marshal(message)
 	if err != nil {
-		return err
+		return errors.As(err)
 	}
 
 	// ctx, cancel := context.WithCancel(context.Background())
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	err = w.socket.Write(ctx, websocket.MessageText, msgBytes)
-	if err != nil {
-		return err
+	if err := w.socket.Write(ctx, websocket.MessageText, msgBytes); err != nil {
+		return errors.As(err)
 	}
 
 	return nil
