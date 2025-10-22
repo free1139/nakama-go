@@ -3,16 +3,26 @@ package nakama
 import (
 	"encoding/json"
 	"fmt"
-	"log"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gwaylib/errors"
+	"github.com/gwaylib/log"
 )
 
-type PromiseExecutor struct {
-	Resolve func(value interface{})
-	Reject  func(reason error)
-}
+const (
+	_msg_key_todo                = "todo" // need confirm the key
+	_msg_key_channel             = "channel"
+	_msg_key_match               = "match"
+	_msg_key_party_join_request  = "party_join_request"
+	_msg_key_channel_message_ack = "channel_message_ack"
+	_msg_key_party_leader        = "party_leader"
+	_msg_key_rpc                 = "rpc"
+	_msg_key_ping                = "ping"
+)
+
+type Cid string
 
 type Presence struct {
 	UserID    string `json:"user_id"`
@@ -28,6 +38,7 @@ type Channel struct {
 }
 
 type ChannelJoin struct {
+	Cid         `json:"cid"`
 	ChannelJoin struct {
 		Target      string `json:"target"`
 		Type        int    `json:"type"`
@@ -150,10 +161,14 @@ type Match struct {
 	Self          Presence   `json:"self"`
 }
 
-type CreateMatch struct {
-	MatchCreate struct {
-		Name *string `json:"name,omitempty"`
-	} `json:"match_create"`
+type MatchCreate struct {
+	Name *string `json:"name,omitempty"`
+}
+type MatchReq struct {
+	MatchCreate MatchCreate `json:"match_create"`
+}
+type MatchRsp struct {
+	Match Match `json:"match"`
 }
 
 type JoinMatch struct {
@@ -340,8 +355,6 @@ type StatusUpdate struct {
 
 // Socket defines the Go struct with corresponding methods.
 type Socket interface {
-	OnDisconnect(err error)
-	OnError(err error)
 	OnHeartbeatTimeout()
 }
 
@@ -374,8 +387,11 @@ type DefaultSocket struct {
 	Adapter            *WebSocketAdapter
 	SendTimeoutMs      int
 	HeartbeatTimeoutMs int
-	cIds               map[string]*PromiseExecutor
+	cIds               sync.Map // string:chan any
 	nextCid            int
+
+	userClosed     atomic.Bool
+	reconnectTimes atomic.Int32
 }
 
 // NewDefaultSocket creates an instance of DefaultSocket.
@@ -396,7 +412,7 @@ func NewDefaultSocket(host, port string, useSSL, verbose bool, adapter *WebSocke
 		Adapter:            adapter,
 		SendTimeoutMs:      *sendTimeoutMs,
 		HeartbeatTimeoutMs: DefaultHeartbeatTimeoutMs,
-		cIds:               make(map[string]*PromiseExecutor),
+		cIds:               sync.Map{},
 		nextCid:            1,
 	}
 }
@@ -409,7 +425,7 @@ func (socket *DefaultSocket) GenerateCID() string {
 }
 
 // Connect establishes the WebSocket connection with optional timeouts.
-func (socket *DefaultSocket) Connect(session *Session, createStatus *bool, timeoutMs *int) error {
+func (socket *DefaultSocket) Connect(session *Session, createStatus *bool, timeoutMs *int, userHandle func(msg []byte) bool) error {
 	if createStatus == nil {
 		defaultStatus := false
 		createStatus = &defaultStatus
@@ -418,10 +434,6 @@ func (socket *DefaultSocket) Connect(session *Session, createStatus *bool, timeo
 	if timeoutMs == nil {
 		defaultTimeout := DefaultConnectTimeoutMs
 		timeoutMs = &defaultTimeout
-	}
-
-	if socket.Adapter.IsOpen() {
-		return nil
 	}
 
 	scheme := "ws://"
@@ -436,91 +448,34 @@ func (socket *DefaultSocket) Connect(session *Session, createStatus *bool, timeo
 		return errors.As(err)
 	}
 
-	socket.Adapter.onClose = func(err error) {
-		socket.OnDisconnect(err)
-	}
+	socket.Adapter.onClose = socket.onDisconnect
 
-	socket.Adapter.onError = func(err error) {
-		socket.OnError(err)
-	}
+	socket.Adapter.onError = socket.onError
 
 	socket.Adapter.onMessage = func(message []byte) {
-		if socket.Verbose == true {
-			fmt.Println("Received message:", string(message))
-		}
-
-		var messageObject *Message
-		if err := json.Unmarshal(message, &messageObject); err != nil {
-			if socket.Verbose {
-				fmt.Println("Failed to unmarshal message into custom object:", err)
-			}
-			return
-		}
-
-		if messageObject == nil {
-			if socket.Verbose {
-				fmt.Println("Received empty message")
-			}
-		}
-
-		if messageObject.Cid == nil {
-			if messageObject.Notifications != nil {
-
-			}
-		} else {
-			executor := socket.cIds[*messageObject.Cid]
-			if executor == nil {
-				if socket.Verbose {
-					log.Printf("No promise executor for message: %v\n", messageObject)
-				}
-				return
-			}
-
-			delete(socket.cIds, *messageObject.Cid)
-
-			if messageObject.Error != nil {
-				executor.Reject(*messageObject.Error)
-			} else {
-				executor.Resolve(messageObject)
-			}
+		if err := socket.handleMessage(message, userHandle); err != nil {
+			log.Warn(errors.As(err))
 		}
 	}
 
-	go func() {
-		socket.Adapter.onOpen = func(event interface{}) error {
-			log.Printf("Socket opened: %v\n", event)
+	socket.Adapter.onOpen = func(event interface{}) error {
+		log.Printf("Socket opened: %v\n", event)
+		go socket.pingPong()
+		return nil
+	}
 
-			socket.pingPong()
-
-			// Set a timeout for the connection process
-			resChan := make(chan error, 1)
-			go func() {
-				time.Sleep(time.Duration(*timeoutMs) * time.Millisecond)
-				resChan <- errors.New("socket connection timed out")
-			}()
-
-			select {
-			case err := <-resChan:
-				if err != nil {
-					socket.Adapter.Close()
-					return err
-				}
-			}
-
-			return nil
-		}
-	}()
 	return nil
 
 }
 
 // Disconnect terminates the WebSocket connection.
 func (socket *DefaultSocket) Disconnect(fireDisconnectEvent bool) {
+	socket.userClosed.Store(true)
 	if socket.Adapter.IsOpen() {
 		socket.Adapter.Close()
 	}
 	if fireDisconnectEvent {
-		socket.OnDisconnect(fmt.Errorf("socket disconnected"))
+		socket.onDisconnect(fmt.Errorf("socket disconnected"))
 	}
 }
 
@@ -535,144 +490,138 @@ func (socket *DefaultSocket) GetHeartbeatTimeoutMs() int {
 }
 
 // OnDisconnect handles WebSocket disconnections.
-func (socket *DefaultSocket) OnDisconnect(evt error) {
+func (socket *DefaultSocket) onDisconnect(evt error) {
 	if socket.Verbose {
-		fmt.Println("OnDisconnect:", evt)
+		log.Info("OnDisconnect:", evt)
 	}
+	if socket.userClosed.Load() {
+		return
+	}
+	// TODO: try reconnect
 }
 
 // OnError handles WebSocket errors.
-func (socket *DefaultSocket) OnError(evt error) {
+func (socket *DefaultSocket) onError(evt error) {
 	if socket.Verbose {
-		fmt.Println("OnError:", evt)
+		log.Info("OnError:", evt)
 	}
+	if socket.userClosed.Load() {
+		return
+	}
+	// TODO: try reconnect
 }
 
 // HandleMessage processes incoming WebSocket messages.
-func (socket *DefaultSocket) HandleMessage(message []byte) {
-	var msg map[string]interface{}
-	if err := json.Unmarshal(message, &msg); err != nil {
-		if socket.Verbose {
-			fmt.Println("Failed to parse message:", err)
+func (socket *DefaultSocket) handleMessage(message []byte, handle func(msg []byte) bool) error {
+	// try find the request cid
+	msg := map[string]any{}
+	if err := json.Unmarshal(message, &msg); err == nil {
+		if _, ok := msg[_msg_key_match].(string); ok {
+			rsp, exists := socket.cIds.Load(_msg_key_match)
+			if exists {
+				rsp.(chan any) <- message
+				return nil
+			}
 		}
-		return
+
+		if _, ok := msg[_msg_key_channel].(string); ok {
+			rsp, exists := socket.cIds.Load(_msg_key_channel)
+			if exists {
+				rsp.(chan any) <- message
+				return nil
+			}
+		}
+		if _, ok := msg[_msg_key_party_join_request].(string); ok {
+			rsp, exists := socket.cIds.Load(_msg_key_party_join_request)
+			if exists {
+				rsp.(chan any) <- message
+				return nil
+			}
+		}
+		if _, ok := msg[_msg_key_channel_message_ack].(string); ok {
+			rsp, exists := socket.cIds.Load(_msg_key_channel_message_ack)
+			if exists {
+				rsp.(chan any) <- message
+				return nil
+			}
+		}
+		if _, ok := msg[_msg_key_party_leader].(string); ok {
+			rsp, exists := socket.cIds.Load(_msg_key_channel_message_ack)
+			if exists {
+				rsp.(chan any) <- message
+				return nil
+			}
+		}
+
+		// unknow message, notify to caller
 	}
 
-	if cid, ok := msg["cid"].(string); ok {
-		executor, exists := socket.cIds[cid]
-		if exists {
-			delete(socket.cIds, cid)
-			if _, hasError := msg["error"]; hasError {
-				executor.Reject(errors.New(msg["error"].(string)))
-			} else {
-				executor.Resolve(msg)
+	// TODO: gorutine pool
+	go func(m []byte) {
+		for i := 10; i > 0; i-- {
+			if handle(m) {
+				break
 			}
-		} else {
-			if socket.Verbose {
-				fmt.Println("No promise executor for message CID:", cid)
-			}
+			time.Sleep(3e9)
 		}
-	} else {
-		// Handle different message types here (notifications, match data, etc.)
-		if socket.Verbose {
-			fmt.Println("Message received:", string(message))
-		}
-	}
+	}(message)
+	return nil
 }
 
 // Send sends a message to the WebSocket server with optional timeout.
-func (socket *DefaultSocket) Send(message interface{}, sendTimeout *int) error {
+func (socket *DefaultSocket) Send(mainKey, methodKey string, message map[string]any, sendTimeout *int) any {
+	if !socket.Adapter.IsOpen() {
+		return errors.New("socket connection is not established")
+	}
+
+	// TODO: implement cid
+	message["cid"] = socket.GenerateCID()
+
+	if err := socket.Adapter.Send(message); err != nil {
+		return errors.As(err)
+	}
+
 	if sendTimeout == nil {
 		sendTimeout = new(int)
 		*sendTimeout = DefaultTimeoutMs
 	}
 
-	if !socket.Adapter.IsOpen() {
-		return errors.New("socket connection is not established")
+	rsp := make(chan any, 1)
+	defer close(rsp)
+
+	socket.cIds.Store(mainKey, rsp)
+	defer socket.cIds.Delete(mainKey)
+
+	t := time.NewTimer(time.Duration(*sendTimeout) * time.Millisecond)
+	select {
+	case <-t.C:
+		return errors.New("timeout")
+	case data := <-rsp:
+		return data
 	}
-
-	cid := socket.GenerateCID()
-	socket.cIds[cid] = &PromiseExecutor{
-		Resolve: func(result interface{}) {
-			if socket.Verbose {
-				fmt.Println("Message sent successfully")
-			}
-		},
-		Reject: func(e error) {
-			if socket.Verbose {
-				fmt.Println("Message failed:", e)
-			}
-		},
-	}
-
-	err := socket.Adapter.Send(message)
-	if err != nil {
-		log.Print(err)
-		return err
-	}
-
-	// Set a timeout for the send operation
-	go func(cid string) {
-		time.Sleep(time.Duration(*sendTimeout) * time.Millisecond)
-		delete(socket.cIds, cid)
-	}(cid)
-
-	return nil
-}
-
-// ReadResponse reads and parses the next response from the WebSocket connection.
-func (socket *DefaultSocket) Read() (map[string]interface{}, error) {
-	if !socket.Adapter.IsOpen() {
-		return nil, errors.New("socket connection is not established")
-	}
-
-	message, err := socket.Adapter.Read()
-	if err != nil {
-		return nil, fmt.Errorf("failed to read message from socket: %w", err)
-	}
-
-	var response map[string]interface{}
-	if err := json.Unmarshal(message, &response); err != nil {
-		return nil, fmt.Errorf("failed to parse socket response: %w", err)
-	}
-
-	return response, nil
 }
 
 // CreateMatch sends a request to create a match and returns the created Match.
 func (socket *DefaultSocket) CreateMatch(name *string) (*Match, error) {
-	request := CreateMatch{
-		MatchCreate: struct {
-			Name *string `json:"name,omitempty"`
-		}{Name: name},
+	req := map[string]any{
+		"match_create": MatchCreate{Name: name},
 	}
 
-	err := socket.Send(request, nil)
-	if err != nil {
-		return nil, err
+	rsp := socket.Send("match", "CreateMatch", req, nil)
+	if err, ok := rsp.(error); ok {
+		return nil, errors.As(err)
+	}
+	matchBytes, ok := rsp.([]byte)
+	if !ok {
+		return nil, errors.New("unknow protocal").As(rsp)
 	}
 
-	response, err := socket.Read()
-	if err != nil {
-		log.Printf("Failed to read response: %v\n", err)
-		return nil, err
+	var match MatchRsp
+	if err := json.Unmarshal(matchBytes, &match); err != nil {
+		return nil, fmt.Errorf("failed to deserialize match data into Match struct: %w", err)
 	}
 
-	if matchData, ok := response["match"]; ok {
-		matchBytes, err := json.Marshal(matchData)
-		if err != nil {
-			return nil, fmt.Errorf("failed to serialize match data: %w", err)
-		}
-
-		var match Match
-		if err := json.Unmarshal(matchBytes, &match); err != nil {
-			return nil, fmt.Errorf("failed to deserialize match data into Match struct: %w", err)
-		}
-
-		return &match, nil
-	}
-
-	return nil, fmt.Errorf("invalid response format: missing or invalid match field")
+	return &match.Match, nil
 }
 
 // CreateParty Example methods for handling specific socket calls
@@ -684,9 +633,9 @@ func (socket *DefaultSocket) CreateParty(open bool, maxSize int) (*Party, error)
 		},
 	}
 
-	err := socket.Send(request, nil)
-	if err != nil {
-		return nil, err
+	rsp := socket.Send("channel", "CreateParty", request, nil)
+	if err, ok := rsp.(error); ok {
+		return nil, errors.As(err)
 	}
 
 	return &Party{Open: open, MaxSize: maxSize}, nil
@@ -700,14 +649,19 @@ func (socket *DefaultSocket) FollowUsers(userIds []string) (*Status, error) {
 		},
 	}
 
-	var response map[string]interface{}
-	err := socket.Send(request, nil)
-	if err != nil {
-		return nil, err
+	// TODO:  find the key of followUsers
+	rsp := socket.Send(_msg_key_todo, "FollowUsers", request, nil)
+	if err, ok := rsp.(error); ok {
+		return nil, errors.As(err)
 	}
 
-	if respStatus, ok := response["status"].(*Status); ok {
-		return respStatus, nil
+	var response map[string]Status
+	if err := json.Unmarshal(rsp.([]byte), &response); err != nil {
+		return nil, errors.As(err)
+	}
+
+	if respStatus, ok := response["status"]; ok {
+		return &respStatus, nil
 	}
 
 	return nil, fmt.Errorf("invalid response format")
@@ -724,17 +678,22 @@ func (socket *DefaultSocket) JoinChat(target string, chatType int, persistence, 
 		},
 	}
 
-	var response map[string]interface{}
-	err := socket.Send(request, nil)
-	if err != nil {
-		return nil, err
+	rsp := socket.Send("channel", "JoinChat", request, nil)
+	if err, ok := rsp.(error); ok {
+		return nil, errors.As(err)
 	}
 
-	if channel, ok := response["channel"].(*Channel); ok {
-		return channel, nil
+	// TODO: some other server push when sent
+	data := map[string]Channel{}
+	if err := json.Unmarshal(rsp.([]byte), &data); err != nil {
+		return nil, errors.As(err)
 	}
 
-	return nil, fmt.Errorf("invalid response format: missing or invalid channel field")
+	if channel, ok := data["channel"]; ok {
+		return &channel, nil
+	}
+
+	return nil, errors.New("invalid response format: missing or invalid channel field").As(string(rsp.([]byte)))
 }
 
 // JoinMatch sends a request to join a match and returns the joined Match.
@@ -751,28 +710,17 @@ func (socket *DefaultSocket) JoinMatch(matchID, token *string, metadata *map[str
 		request["match_join"].(map[string]interface{})["match_id"] = matchID
 	}
 
-	err := socket.Send(request, nil)
-	if err != nil {
+	rsp := socket.Send("match", "JoinMatch", request, nil)
+	if err, ok := rsp.(error); ok {
 		return nil, err
 	}
 
-	response, err := socket.Read()
-	if err != nil {
-		log.Printf("Failed to read response: %v\n", err)
-		return nil, err
+	matchRsp := map[string]Match{}
+	if err := json.Unmarshal(rsp.([]byte), &matchRsp); err != nil {
+		return nil, errors.As(err)
 	}
 
-	if matchData, ok := response["match"]; ok {
-		matchBytes, err := json.Marshal(matchData)
-		if err != nil {
-			return nil, fmt.Errorf("failed to serialize match data: %w", err)
-		}
-
-		var match Match
-		if err := json.Unmarshal(matchBytes, &match); err != nil {
-			return nil, fmt.Errorf("failed to deserialize match data into Match struct: %w", err)
-		}
-
+	if match, ok := matchRsp["match"]; ok {
 		return &match, nil
 	}
 
@@ -787,9 +735,12 @@ func (socket *DefaultSocket) JoinParty(partyID string) error {
 		},
 	}
 
-	if err := socket.Send(request, nil); err != nil {
-		return err
+	rsp := socket.Send("channel", "JoinPatry", request, nil)
+	if err, ok := rsp.(error); ok {
+		return errors.As(err)
 	}
+
+	// TODO: need decode?
 
 	return nil
 }
@@ -802,9 +753,12 @@ func (socket *DefaultSocket) LeaveChat(channelID string) error {
 		},
 	}
 
-	if err := socket.Send(request, nil); err != nil {
-		return err
+	rsp := socket.Send("channel", "LeaveChat", request, nil)
+	if err, ok := rsp.(error); ok {
+		return errors.As(err)
 	}
+
+	// TODO: decode?
 
 	return nil
 }
@@ -817,9 +771,12 @@ func (socket *DefaultSocket) LeaveMatch(matchID string) error {
 		},
 	}
 
-	if err := socket.Send(request, nil); err != nil {
-		return err
+	rsp := socket.Send("match", "LeaveMatch", request, nil)
+	if err, ok := rsp.(error); ok {
+		return errors.As(err)
 	}
+
+	// TODO: decode?
 
 	return nil
 }
@@ -832,9 +789,12 @@ func (socket *DefaultSocket) LeaveParty(partyID string) error {
 		},
 	}
 
-	if err := socket.Send(request, nil); err != nil {
-		return err
+	rsp := socket.Send("channel", "LeaveParty", request, nil)
+	if err, ok := rsp.(error); ok {
+		return errors.As(err)
 	}
+
+	// TODO: decode
 
 	return nil
 }
@@ -847,14 +807,19 @@ func (socket *DefaultSocket) ListPartyJoinRequests(partyID string) (*PartyJoinRe
 		},
 	}
 
-	var response map[string]interface{}
-	err := socket.Send(request, nil)
-	if err != nil {
-		return nil, err
+	// TODO: confirm the main key is channel.
+	rsp := socket.Send(_msg_key_party_join_request, "ListPartyJoinRequests", request, nil)
+	if err, ok := rsp.(error); ok {
+		return nil, errors.As(err)
 	}
 
-	if joinRequest, ok := response["party_join_request"].(*PartyJoinRequest); ok {
-		return joinRequest, nil
+	response := map[string]PartyJoinRequest{}
+	if err := json.Unmarshal(rsp.([]byte), &response); err != nil {
+		return nil, errors.As(err)
+	}
+
+	if joinRequest, ok := response[_msg_key_party_join_request]; ok {
+		return &joinRequest, nil
 	}
 
 	return nil, fmt.Errorf("invalid response format: missing or invalid party_join_request field")
@@ -869,14 +834,14 @@ func (socket *DefaultSocket) RemoveChatMessage(channelID, messageID string) (*Ch
 		},
 	}
 
-	var response map[string]interface{}
-	err := socket.Send(request, nil)
-	if err != nil {
-		return nil, err
+	rsp := socket.Send(_msg_key_channel_message_ack, "RemoveChatMessage", request, nil)
+	if err, ok := rsp.(error); ok {
+		return nil, errors.As(err)
 	}
 
-	if messageAck, ok := response["channel_message_ack"].(*ChannelMessageAck); ok {
-		return messageAck, nil
+	response := map[string]ChannelMessageAck{}
+	if messageAck, ok := response[_msg_key_channel_message_ack]; ok {
+		return &messageAck, nil
 	}
 
 	return nil, fmt.Errorf("invalid response format: missing or invalid channel_message_ack field")
@@ -891,14 +856,17 @@ func (socket *DefaultSocket) PromotePartyMember(partyID string, partyMember Pres
 		},
 	}
 
-	var response map[string]interface{}
-	err := socket.Send(request, nil)
-	if err != nil {
-		return nil, err
+	rsp := socket.Send(_msg_key_party_leader, "PromotePartyMember", request, nil)
+	if err, ok := rsp.(error); ok {
+		return nil, errors.As(err)
 	}
 
-	if partyLeader, ok := response["party_leader"].(*PartyLeader); ok {
-		return partyLeader, nil
+	response := map[string]PartyLeader{}
+	if err := json.Unmarshal(rsp.([]byte), &response); err != nil {
+		return nil, errors.As(err)
+	}
+	if partyLeader, ok := response["party_leader"]; ok {
+		return &partyLeader, nil
 	}
 
 	return nil, fmt.Errorf("invalid response format: missing or invalid party_leader field")
@@ -912,8 +880,10 @@ func (socket *DefaultSocket) RemoveMatchmaker(ticket string) error {
 		},
 	}
 
-	if err := socket.Send(request, nil); err != nil {
-		return err
+	// TODO: confirm the msg_key
+	rsp := socket.Send(_msg_key_match, "RemoveMatchmaker", request, nil)
+	if err, ok := rsp.(error); ok {
+		return errors.As(err)
 	}
 
 	return nil
@@ -928,8 +898,10 @@ func (socket *DefaultSocket) RemoveMatchmakerParty(partyID, ticket string) error
 		},
 	}
 
-	if err := socket.Send(request, nil); err != nil {
-		return err
+	// TODO: confirm the msg_key
+	rsp := socket.Send(_msg_key_match, "RemoveMatchmakerParty", request, nil)
+	if err, ok := rsp.(error); ok {
+		return errors.As(err)
 	}
 
 	return nil
@@ -944,8 +916,10 @@ func (socket *DefaultSocket) RemovePartyMember(partyID string, member Presence) 
 		},
 	}
 
-	if err := socket.Send(request, nil); err != nil {
-		return err
+	// TODO: confirm the msg_key
+	rsp := socket.Send(_msg_key_channel, "RemovePartyMemeber", request, nil)
+	if err, ok := rsp.(error); ok {
+		return errors.As(err)
 	}
 
 	return nil
@@ -961,13 +935,14 @@ func (socket *DefaultSocket) Rpc(id, payload, httpKey string) (*ApiRpc, error) {
 		},
 	}
 
-	var response map[string]interface{}
-	if err := socket.Send(request, nil); err != nil {
-		return nil, err
+	rsp := socket.Send(_msg_key_rpc, "Rpc", request, nil)
+	if err, ok := rsp.(error); ok {
+		return nil, errors.As(err)
 	}
 
-	if rpc, ok := response["rpc"].(*ApiRpc); ok {
-		return rpc, nil
+	response := map[string]ApiRpc{}
+	if rpc, ok := response[_msg_key_rpc]; ok {
+		return &rpc, nil
 	}
 
 	return nil, fmt.Errorf("invalid response format: missing or invalid rpc field")
@@ -985,8 +960,10 @@ func (socket *DefaultSocket) SendMatchState(matchID string, opCode int, data int
 		},
 	}
 
-	if err := socket.Send(request, nil); err != nil {
-		return err
+	// TODO: confirm the msg_key
+	rsp := socket.Send(_msg_key_match, "SendMatchState", request, nil)
+	if err, ok := rsp.(error); ok {
+		return errors.As(err)
 	}
 
 	return nil
@@ -1002,8 +979,9 @@ func (socket *DefaultSocket) SendPartyData(partyID string, opCode int, data inte
 		},
 	}
 
-	if err := socket.Send(request, nil); err != nil {
-		return err
+	rsp := socket.Send(_msg_key_todo, "SendPartyData", request, nil)
+	if err, ok := rsp.(error); ok {
+		return errors.As(err)
 	}
 
 	return nil
@@ -1017,8 +995,9 @@ func (socket *DefaultSocket) UnfollowUsers(userIDs []string) error {
 		},
 	}
 
-	if err := socket.Send(request, nil); err != nil {
-		return err
+	rsp := socket.Send(_msg_key_todo, "UnfollowUsers", request, nil)
+	if err, ok := rsp.(error); ok {
+		return errors.As(err)
 	}
 
 	return nil
@@ -1034,13 +1013,17 @@ func (socket *DefaultSocket) UpdateChatMessage(channelID, messageID string, cont
 		},
 	}
 
-	var response map[string]interface{}
-	if err := socket.Send(request, nil); err != nil {
-		return nil, err
+	rsp := socket.Send(_msg_key_channel_message_ack, "UpdateChatMessage", request, nil)
+	if err, ok := rsp.(error); ok {
+		return nil, errors.As(err)
 	}
 
-	if messageAck, ok := response["channel_message_ack"].(*ChannelMessageAck); ok {
-		return messageAck, nil
+	response := map[string]ChannelMessageAck{}
+	if err := json.Unmarshal(rsp.([]byte), &response); err != nil {
+		return nil, errors.As(err)
+	}
+	if messageAck, ok := response["channel_message_ack"]; ok {
+		return &messageAck, nil
 	}
 
 	return nil, fmt.Errorf("invalid response format: missing or invalid channel_message_ack field")
@@ -1054,8 +1037,9 @@ func (socket *DefaultSocket) UpdateStatus(status *string) error {
 		},
 	}
 
-	if err := socket.Send(request, nil); err != nil {
-		return err
+	rsp := socket.Send(_msg_key_todo, "UpdateStatus", request, nil)
+	if err, ok := rsp.(error); ok {
+		return errors.As(err)
 	}
 
 	return nil
@@ -1070,13 +1054,17 @@ func (socket *DefaultSocket) WriteChatMessage(channelID string, content interfac
 		},
 	}
 
-	var response map[string]interface{}
-	if err := socket.Send(request, nil); err != nil {
-		return nil, err
+	rsp := socket.Send(_msg_key_channel_message_ack, "WriteChatMessage", request, nil)
+	if err, ok := rsp.(error); ok {
+		return nil, errors.As(err)
 	}
 
-	if messageAck, ok := response["channel_message_ack"].(*ChannelMessageAck); ok {
-		return messageAck, nil
+	response := map[string]ChannelMessageAck{}
+	if err := json.Unmarshal(rsp.([]byte), &response); err != nil {
+		return nil, errors.As(err)
+	}
+	if messageAck, ok := response[_msg_key_channel_message_ack]; ok {
+		return &messageAck, nil
 	}
 
 	return nil, fmt.Errorf("invalid response format: missing or invalid channel_message_ack field")
@@ -1092,7 +1080,8 @@ func (socket *DefaultSocket) pingPong() {
 		select {
 		case <-ticker.C:
 			ping := map[string]interface{}{"ping": struct{}{}}
-			if err := socket.Send(ping, &socket.HeartbeatTimeoutMs); err != nil {
+			rsp := socket.Send(_msg_key_ping, "pingPong", ping, &socket.HeartbeatTimeoutMs)
+			if err, ok := rsp.(error); ok {
 				log.Println("after pingpong socket is nil:", socket.Adapter.socket == nil)
 				log.Println("Failed to send ping:", err)
 				if socket.Adapter.IsOpen() {

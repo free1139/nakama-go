@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+	"github.com/gwaylib/log"
 )
 
 // WebSocketAdapter is a text-based WebSocket adapter for transmitting payloads over UTF-8.
@@ -66,7 +67,7 @@ func (w *WebSocketAdapter) Connect(scheme, host, port string, createStatus bool,
 		return err
 	}
 
-	//go w.listen()
+	go w.listen()
 
 	return nil
 }
@@ -136,15 +137,21 @@ func (w *WebSocketAdapter) listen() {
 			if socket != nil {
 				closeStatus := websocket.CloseStatus(err)
 				fmt.Printf("WebSocket closed with status: %d\n", closeStatus)
-
 				w.Close()
 			}
 			break
 		}
 
+		log.Debug(string(message))
+		if w.onMessage == nil {
+			// message handler not set
+			continue
+		}
+
+		// TODO: how to decode?
 		var decodedMessage map[string]interface{}
 		if err := json.Unmarshal(message, &decodedMessage); err != nil {
-			fmt.Printf("Error unmarshalling WebSocket message: %v\n", err)
+			w.onMessage(message)
 			continue
 		}
 
@@ -153,10 +160,12 @@ func (w *WebSocketAdapter) listen() {
 		decodeReceivedData(decodedMessage, "party_data")
 
 		messageBytes, err := json.Marshal(decodedMessage)
-		if err == nil {
+		if err != nil {
+			w.onMessage(message)
+			continue
+		} else {
 			w.onMessage(messageBytes)
-		} else if w.onError != nil {
-			w.onError(err)
+			continue
 		}
 	}
 }
