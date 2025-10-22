@@ -16,17 +16,6 @@ import (
 	wrapperspb "google.golang.org/protobuf/types/known/wrapperspb"
 )
 
-const (
-	_msg_key_todo                = "todo" // need confirm the key
-	_msg_key_channel             = "channel"
-	_msg_key_match               = "match"
-	_msg_key_party_join_request  = "party_join_request"
-	_msg_key_channel_message_ack = "channel_message_ack"
-	_msg_key_party_leader        = "party_leader"
-	_msg_key_rpc                 = "rpc"
-	_msg_key_ping                = "ping"
-)
-
 type RspResult struct {
 	Decoded *rtapi.Envelope // try parse, maybe nil
 	Message []byte          // origin data
@@ -254,43 +243,6 @@ func (socket *DefaultSocket) handleMessage(mType int, message []byte, handle fun
 		}
 	}
 
-	if decoded.GetMessage().(*rtapi.Envelope_Match) != nil {
-		rsp, exists := socket.cIds.Load(_msg_key_match)
-		if exists {
-			rsp.(chan any) <- result
-			return nil
-		}
-	}
-
-	if decoded.GetMessage().(*rtapi.Envelope_Channel) != nil {
-		rsp, exists := socket.cIds.Load(_msg_key_channel)
-		if exists {
-			rsp.(chan any) <- result
-			return nil
-		}
-	}
-	if decoded.GetMessage().(*rtapi.Envelope_PartyJoinRequest) != nil {
-		rsp, exists := socket.cIds.Load(_msg_key_party_join_request)
-		if exists {
-			rsp.(chan any) <- result
-			return nil
-		}
-	}
-	if decoded.GetMessage().(*rtapi.Envelope_ChannelMessageAck) != nil {
-		rsp, exists := socket.cIds.Load(_msg_key_channel_message_ack)
-		if exists {
-			rsp.(chan any) <- result
-			return nil
-		}
-	}
-	if decoded.GetMessage().(*rtapi.Envelope_PartyLeader) != nil {
-		rsp, exists := socket.cIds.Load(_msg_key_party_leader)
-		if exists {
-			rsp.(chan any) <- result
-			return nil
-		}
-	}
-
 	// unknow message, notify to caller
 	handle(result)
 	return nil
@@ -299,7 +251,7 @@ func (socket *DefaultSocket) handleMessage(mType int, message []byte, handle fun
 
 // Send sends a message to the WebSocket server with optional timeout.
 // any should be error or []byte or Rsp pointer
-func (socket *DefaultSocket) Send(mainKey, methodKey string, message *rtapi.Envelope, sendTimeout *int) any {
+func (socket *DefaultSocket) Send(message *rtapi.Envelope, sendTimeout *int) any {
 	if !socket.Adapter.IsOpen() {
 		return errors.New("socket connection is not established")
 	}
@@ -312,8 +264,6 @@ func (socket *DefaultSocket) Send(mainKey, methodKey string, message *rtapi.Enve
 
 	socket.cIds.Store(cid, rsp)
 	defer socket.cIds.Delete(cid)
-	socket.cIds.Store(mainKey, rsp)
-	defer socket.cIds.Delete(mainKey)
 
 	//// Handle specific cases of match_data_send and party_data_send
 	//if msgMap, ok := message.(map[string]interface{}); ok {
@@ -333,7 +283,7 @@ func (socket *DefaultSocket) Send(mainKey, methodKey string, message *rtapi.Enve
 	t := time.NewTimer(time.Duration(*sendTimeout) * time.Millisecond)
 	select {
 	case <-t.C:
-		return errors.New("timeout").As(mainKey, methodKey)
+		return errors.New("timeout")
 	case data := <-rsp:
 		return data
 	}
@@ -347,7 +297,7 @@ func (socket *DefaultSocket) CreateMatch(name *string) (*rtapi.Match, error) {
 		},
 	}
 
-	result := socket.Send("match", "CreateMatch", req, nil)
+	result := socket.Send(req, nil)
 	if err, ok := result.(error); ok {
 		return nil, errors.As(err)
 	}
@@ -367,7 +317,7 @@ func (socket *DefaultSocket) CreateParty(open bool, maxSize int32) (*rtapi.Party
 		},
 	}
 
-	result := socket.Send(_msg_key_todo, "CreateParty", req, nil)
+	result := socket.Send(req, nil)
 	if err, ok := result.(error); ok {
 		return nil, errors.As(err)
 	}
@@ -385,7 +335,7 @@ func (socket *DefaultSocket) FollowUsers(userIds []string) (*rtapi.Status, error
 		},
 	}
 
-	result := socket.Send(_msg_key_todo, "FollowUsers", req, nil)
+	result := socket.Send(req, nil)
 	if err, ok := result.(error); ok {
 		return nil, errors.As(err)
 	}
@@ -406,7 +356,7 @@ func (socket *DefaultSocket) JoinChat(target string, chatType int32, persistence
 		},
 	}
 
-	result := socket.Send(_msg_key_channel, "JoinChat", req, nil)
+	result := socket.Send(req, nil)
 	if err, ok := result.(error); ok {
 		return nil, errors.As(err)
 	}
@@ -431,7 +381,7 @@ func (socket *DefaultSocket) JoinMatch(matchID, token *string, metadata map[stri
 		},
 	}
 
-	result := socket.Send(_msg_key_match, "JoinMatch", req, nil)
+	result := socket.Send(req, nil)
 	if err, ok := result.(error); ok {
 		return nil, errors.As(err)
 	}
@@ -449,7 +399,7 @@ func (socket *DefaultSocket) JoinParty(partyID string) error {
 		},
 	}
 
-	result := socket.Send(_msg_key_todo, "JoinPatry", req, nil)
+	result := socket.Send(req, nil)
 	if err, ok := result.(error); ok {
 		return errors.As(err)
 	}
@@ -469,7 +419,7 @@ func (socket *DefaultSocket) LeaveChat(channelID string) error {
 		},
 	}
 
-	result := socket.Send(_msg_key_todo, "LeaveChat", req, nil)
+	result := socket.Send(req, nil)
 	if err, ok := result.(error); ok {
 		return errors.As(err)
 	}
@@ -489,7 +439,7 @@ func (socket *DefaultSocket) LeaveMatch(matchID string) error {
 		},
 	}
 
-	result := socket.Send(_msg_key_todo, "LeaveMatch", req, nil)
+	result := socket.Send(req, nil)
 	if err, ok := result.(error); ok {
 		return errors.As(err)
 	}
@@ -509,7 +459,7 @@ func (socket *DefaultSocket) LeaveParty(partyID string) error {
 		},
 	}
 
-	result := socket.Send(_msg_key_todo, "LeaveParty", req, nil)
+	result := socket.Send(req, nil)
 	if err, ok := result.(error); ok {
 		return errors.As(err)
 	}
@@ -530,7 +480,7 @@ func (socket *DefaultSocket) ListPartyJoinRequests(partyID string) (*rtapi.Party
 	}
 
 	// TODO: confirm the main key is channel.
-	result := socket.Send(_msg_key_party_join_request, "ListPartyJoinRequests", req, nil)
+	result := socket.Send(req, nil)
 	if err, ok := result.(error); ok {
 		return nil, errors.As(err)
 	}
@@ -549,7 +499,7 @@ func (socket *DefaultSocket) RemoveChatMessage(channelID, messageID string) (*rt
 		},
 	}
 
-	result := socket.Send(_msg_key_channel_message_ack, "RemoveChatMessage", req, nil)
+	result := socket.Send(req, nil)
 	if err, ok := result.(error); ok {
 		return nil, errors.As(err)
 	}
@@ -567,7 +517,7 @@ func (socket *DefaultSocket) PromotePartyMember(partyID string, partyMember *rta
 		},
 	}
 
-	result := socket.Send(_msg_key_party_leader, "PromotePartyMember", req, nil)
+	result := socket.Send(req, nil)
 	if err, ok := result.(error); ok {
 		return nil, errors.As(err)
 	}
@@ -584,7 +534,7 @@ func (socket *DefaultSocket) RemoveMatchmaker(ticket string) error {
 		},
 	}
 
-	result := socket.Send(_msg_key_todo, "RemoveMatchmaker", req, nil)
+	result := socket.Send(req, nil)
 	if err, ok := result.(error); ok {
 		return errors.As(err)
 	}
@@ -603,7 +553,7 @@ func (socket *DefaultSocket) RemoveMatchmakerParty(partyID, ticket string) error
 		},
 	}
 
-	result := socket.Send(_msg_key_todo, "RemoveMatchmakerParty", req, nil)
+	result := socket.Send(req, nil)
 	if err, ok := result.(error); ok {
 		return errors.As(err)
 	}
@@ -622,7 +572,7 @@ func (socket *DefaultSocket) RemovePartyMember(partyID string, member *rtapi.Use
 		},
 	}
 
-	result := socket.Send(_msg_key_todo, "RemovePartyMemeber", req, nil)
+	result := socket.Send(req, nil)
 	if err, ok := result.(error); ok {
 		return errors.As(err)
 	}
@@ -642,7 +592,7 @@ func (socket *DefaultSocket) Rpc(id, payload, httpKey string) (*api.Rpc, error) 
 		},
 	}
 
-	result := socket.Send(_msg_key_rpc, "Rpc", req, nil)
+	result := socket.Send(req, nil)
 	if err, ok := result.(error); ok {
 		return nil, errors.As(err)
 	}
@@ -664,7 +614,7 @@ func (socket *DefaultSocket) SendMatchState(matchID string, opCode int64, data [
 	}
 
 	// TODO: confirm the msg_key
-	result := socket.Send(_msg_key_match, "SendMatchState", req, nil)
+	result := socket.Send(req, nil)
 	if err, ok := result.(error); ok {
 		return errors.As(err)
 	}
@@ -684,7 +634,7 @@ func (socket *DefaultSocket) SendPartyData(partyID string, opCode int64, data []
 		},
 	}
 
-	result := socket.Send(_msg_key_todo, "SendPartyData", req, nil)
+	result := socket.Send(req, nil)
 	if err, ok := result.(error); ok {
 		return errors.As(err)
 	}
@@ -702,7 +652,7 @@ func (socket *DefaultSocket) UnfollowUsers(userIDs []string) error {
 		},
 	}
 
-	result := socket.Send(_msg_key_todo, "UnfollowUsers", req, nil)
+	result := socket.Send(req, nil)
 	if err, ok := result.(error); ok {
 		return errors.As(err)
 	}
@@ -722,7 +672,7 @@ func (socket *DefaultSocket) UpdateChatMessage(channelID, messageID string, cont
 		},
 	}
 
-	result := socket.Send(_msg_key_channel_message_ack, "UpdateChatMessage", req, nil)
+	result := socket.Send(req, nil)
 	if err, ok := result.(error); ok {
 		return nil, errors.As(err)
 	}
@@ -740,7 +690,7 @@ func (socket *DefaultSocket) UpdateStatus(status *string) error {
 		},
 	}
 
-	result := socket.Send(_msg_key_todo, "UpdateStatus", req, nil)
+	result := socket.Send(req, nil)
 	if err, ok := result.(error); ok {
 		return errors.As(err)
 	}
@@ -760,7 +710,7 @@ func (socket *DefaultSocket) WriteChatMessage(channelID, content string) (*rtapi
 		},
 	}
 
-	result := socket.Send(_msg_key_channel_message_ack, "WriteChatMessage", req, nil)
+	result := socket.Send(req, nil)
 	if err, ok := result.(error); ok {
 		return nil, errors.As(err)
 	}
@@ -782,7 +732,7 @@ func (socket *DefaultSocket) pingPong(ctx context.Context) {
 	for {
 		select {
 		case <-ticker.C:
-			result := socket.Send(_msg_key_ping, "pingPong", pingReq, &socket.HeartbeatTimeoutMs)
+			result := socket.Send(pingReq, &socket.HeartbeatTimeoutMs)
 			if err, ok := result.(error); ok {
 				log.Println("after pingpong socket is nil:", socket.Adapter.socket == nil)
 				log.Println("Failed to send ping:", err)
