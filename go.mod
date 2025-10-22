@@ -5,16 +5,17 @@ go 1.23
 require (
 	github.com/coder/websocket v1.8.12
 	github.com/gwaylib/errors v0.0.4
+	github.com/gwaylib/eweb v1.0.6
 	github.com/gwaylib/log v0.0.6
 	github.com/panjf2000/ants/v2 v2.11.3
 )
 
 require (
-	github.com/labstack/gommon v0.3.1 // indirect
-	github.com/mattn/go-colorable v0.1.12 // indirect
-	github.com/mattn/go-isatty v0.0.14 // indirect
+	github.com/labstack/gommon v0.4.2 // indirect
+	github.com/mattn/go-colorable v0.1.13 // indirect
+	github.com/mattn/go-isatty v0.0.20 // indirect
 	golang.org/x/sync v0.11.0 // indirect
-	golang.org/x/sys v0.0.0-20220412211240-33da011f77ad // indirect
+	golang.org/x/sys v0.18.0 // indirect
 )
 
 require (

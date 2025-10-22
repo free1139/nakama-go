@@ -142,8 +142,8 @@ func (w *WebSocketAdapter) listen() {
 			break
 		}
 
-		log.Debug(string(message))
 		if w.onMessage == nil {
+			log.Debug(string(message))
 			// message handler not set
 			continue
 		}

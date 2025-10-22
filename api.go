@@ -310,6 +310,11 @@ type ApiRpc struct {
 	Payload *string `json:"payload,omitempty"`
 }
 
+type ApiRpcRsp struct {
+	Cid    string `json:"cid"`
+	ApiRpc ApiRpc `json:"rpc"`
+}
+
 type ApiSession struct {
 	Created      *bool   `json:"created,omitempty"`
 	RefreshToken *string `json:"refresh_token,omitempty"`

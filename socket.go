@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/gwaylib/errors"
+	"github.com/gwaylib/eweb/jsonp"
 	"github.com/gwaylib/log"
 )
 
@@ -24,6 +25,11 @@ const (
 
 type Cid string
 
+type RspResult struct {
+	Parsed  jsonp.Params // try parse, maybe nil
+	Message []byte       // origin data
+}
+
 type Presence struct {
 	UserID    string `json:"user_id"`
 	SessionID string `json:"session_id"`
@@ -35,6 +41,11 @@ type Channel struct {
 	ID        string     `json:"id"`
 	Presences []Presence `json:"presences"`
 	Self      Presence   `json:"self"`
+}
+
+type ChannelRsp struct {
+	Cid     `json:"cid"`
+	Channel Channel `json:"channel"`
 }
 
 type ChannelJoin struct {
@@ -61,6 +72,11 @@ type ChannelMessageAck struct {
 	CreateTime  string `json:"create_time"`
 	UpdateTime  string `json:"update_time"`
 	Persistence bool   `json:"persistence"`
+}
+
+type ChannelMessageAckRsp struct {
+	Cid               string            `json:"cid"`
+	ChannelMessageAck ChannelMessageAck `json:"channel_message_ack"`
 }
 
 type ChannelMessageSend struct {
@@ -168,7 +184,8 @@ type MatchReq struct {
 	MatchCreate MatchCreate `json:"match_create"`
 }
 type MatchRsp struct {
-	Match Match `json:"match"`
+	Cid   string `json:"match"`
+	Match Match  `json:"match"`
 }
 
 type JoinMatch struct {
@@ -243,6 +260,11 @@ type PartyLeader struct {
 	Presence Presence `json:"presence"`
 }
 
+type PartyLeaderRsp struct {
+	Cid         string      `json:"cid"`
+	PartyLeader PartyLeader `json:"party_leader"`
+}
+
 type PartyAccept struct {
 	PartyAccept struct {
 		PartyID  string   `json:"party_id"`
@@ -280,6 +302,11 @@ type PartyJoinRequestList struct {
 	PartyJoinRequestList struct {
 		PartyID string `json:"party_id"`
 	} `json:"party_join_request_list"`
+}
+
+type PartyJoinRequestRsp struct {
+	Cid              string           `json:"cid"`
+	PartyJoinRequest PartyJoinRequest `party_join_request`
 }
 
 type PartyMatchmakerAdd struct {
@@ -328,6 +355,11 @@ type Ping struct {
 
 type Status struct {
 	Presences []Presence `json:"presences"`
+}
+
+type StatusRsp struct {
+	Cid    string `json:"cid"`
+	Status Status `json:"status"`
 }
 
 type StatusFollow struct {
@@ -425,7 +457,7 @@ func (socket *DefaultSocket) GenerateCID() string {
 }
 
 // Connect establishes the WebSocket connection with optional timeouts.
-func (socket *DefaultSocket) Connect(session *Session, createStatus *bool, timeoutMs *int, userHandle func(msg []byte) bool) error {
+func (socket *DefaultSocket) Connect(session *Session, createStatus *bool, timeoutMs *int, userHandle func(*RspResult) bool) error {
 	if createStatus == nil {
 		defaultStatus := false
 		createStatus = &defaultStatus
@@ -512,70 +544,86 @@ func (socket *DefaultSocket) onError(evt error) {
 }
 
 // HandleMessage processes incoming WebSocket messages.
-func (socket *DefaultSocket) handleMessage(message []byte, handle func(msg []byte) bool) error {
+func (socket *DefaultSocket) handleMessage(message []byte, handle func(*RspResult) bool) error {
+	result := &RspResult{Message: message}
 	// try find the request cid
-	msg := map[string]any{}
-	if err := json.Unmarshal(message, &msg); err == nil {
-		if _, ok := msg[_msg_key_match].(string); ok {
-			rsp, exists := socket.cIds.Load(_msg_key_match)
-			if exists {
-				rsp.(chan any) <- message
-				return nil
-			}
-		}
+	msg, err := jsonp.ParseParams(message)
+	if err != nil {
+		handle(result)
+		return nil
+	}
+	result.Parsed = msg
 
-		if _, ok := msg[_msg_key_channel].(string); ok {
-			rsp, exists := socket.cIds.Load(_msg_key_channel)
-			if exists {
-				rsp.(chan any) <- message
-				return nil
-			}
+	cid := msg.String("cid")
+	if len(cid) > 0 {
+		rsp, ok := socket.cIds.Load(cid)
+		if ok {
+			rsp.(chan any) <- result
+			return nil
 		}
-		if _, ok := msg[_msg_key_party_join_request].(string); ok {
-			rsp, exists := socket.cIds.Load(_msg_key_party_join_request)
-			if exists {
-				rsp.(chan any) <- message
-				return nil
-			}
-		}
-		if _, ok := msg[_msg_key_channel_message_ack].(string); ok {
-			rsp, exists := socket.cIds.Load(_msg_key_channel_message_ack)
-			if exists {
-				rsp.(chan any) <- message
-				return nil
-			}
-		}
-		if _, ok := msg[_msg_key_party_leader].(string); ok {
-			rsp, exists := socket.cIds.Load(_msg_key_channel_message_ack)
-			if exists {
-				rsp.(chan any) <- message
-				return nil
-			}
-		}
-
-		// unknow message, notify to caller
 	}
 
-	// TODO: gorutine pool
-	go func(m []byte) {
-		for i := 10; i > 0; i-- {
-			if handle(m) {
-				break
-			}
-			time.Sleep(3e9)
+	if val := msg.Any(_msg_key_match); val != nil {
+		rsp, exists := socket.cIds.Load(_msg_key_match)
+		if exists {
+			rsp.(chan any) <- result
+			return nil
 		}
-	}(message)
+	}
+
+	if val := msg.Any(_msg_key_channel); val != nil {
+		rsp, exists := socket.cIds.Load(_msg_key_channel)
+		if exists {
+			rsp.(chan any) <- result
+			return nil
+		}
+	}
+	if val := msg.Any(_msg_key_party_join_request); val != nil {
+		rsp, exists := socket.cIds.Load(_msg_key_party_join_request)
+		if exists {
+			rsp.(chan any) <- result
+			return nil
+		}
+	}
+	if val := msg.Any(_msg_key_channel_message_ack); val != nil {
+		rsp, exists := socket.cIds.Load(_msg_key_channel_message_ack)
+		if exists {
+			rsp.(chan any) <- result
+			return nil
+		}
+	}
+	if val := msg.Any(_msg_key_party_leader); val != nil {
+		rsp, exists := socket.cIds.Load(_msg_key_channel_message_ack)
+		if exists {
+			rsp.(chan any) <- result
+			return nil
+		}
+	}
+
+	// unknow message, notify to caller
+	handle(result)
 	return nil
+
 }
 
 // Send sends a message to the WebSocket server with optional timeout.
+// any should be error or []byte or Rsp pointer
 func (socket *DefaultSocket) Send(mainKey, methodKey string, message map[string]any, sendTimeout *int) any {
 	if !socket.Adapter.IsOpen() {
 		return errors.New("socket connection is not established")
 	}
 
-	// TODO: implement cid
-	message["cid"] = socket.GenerateCID()
+	rsp := make(chan any, 1)
+	defer close(rsp)
+
+	cid := socket.GenerateCID()
+	message["cid"] = cid
+
+	socket.cIds.Store(cid, rsp)
+	defer socket.cIds.Delete(cid)
+
+	socket.cIds.Store(mainKey, rsp)
+	defer socket.cIds.Delete(mainKey)
 
 	if err := socket.Adapter.Send(message); err != nil {
 		return errors.As(err)
@@ -586,16 +634,10 @@ func (socket *DefaultSocket) Send(mainKey, methodKey string, message map[string]
 		*sendTimeout = DefaultTimeoutMs
 	}
 
-	rsp := make(chan any, 1)
-	defer close(rsp)
-
-	socket.cIds.Store(mainKey, rsp)
-	defer socket.cIds.Delete(mainKey)
-
 	t := time.NewTimer(time.Duration(*sendTimeout) * time.Millisecond)
 	select {
 	case <-t.C:
-		return errors.New("timeout")
+		return errors.New("timeout").As(mainKey, methodKey)
 	case data := <-rsp:
 		return data
 	}
@@ -607,17 +649,17 @@ func (socket *DefaultSocket) CreateMatch(name *string) (*Match, error) {
 		"match_create": MatchCreate{Name: name},
 	}
 
-	rsp := socket.Send("match", "CreateMatch", req, nil)
-	if err, ok := rsp.(error); ok {
+	result := socket.Send("match", "CreateMatch", req, nil)
+	if err, ok := result.(error); ok {
 		return nil, errors.As(err)
 	}
-	matchBytes, ok := rsp.([]byte)
+	rsp, ok := result.(*RspResult)
 	if !ok {
-		return nil, errors.New("unknow protocal").As(rsp)
+		return nil, errors.New("unknow protocal").As(result)
 	}
 
 	var match MatchRsp
-	if err := json.Unmarshal(matchBytes, &match); err != nil {
+	if err := json.Unmarshal(rsp.Message, &match); err != nil {
 		return nil, fmt.Errorf("failed to deserialize match data into Match struct: %w", err)
 	}
 
@@ -633,8 +675,8 @@ func (socket *DefaultSocket) CreateParty(open bool, maxSize int) (*Party, error)
 		},
 	}
 
-	rsp := socket.Send("channel", "CreateParty", request, nil)
-	if err, ok := rsp.(error); ok {
+	result := socket.Send(_msg_key_todo, "CreateParty", request, nil)
+	if err, ok := result.(error); ok {
 		return nil, errors.As(err)
 	}
 
@@ -649,22 +691,16 @@ func (socket *DefaultSocket) FollowUsers(userIds []string) (*Status, error) {
 		},
 	}
 
-	// TODO:  find the key of followUsers
-	rsp := socket.Send(_msg_key_todo, "FollowUsers", request, nil)
-	if err, ok := rsp.(error); ok {
+	result := socket.Send(_msg_key_todo, "FollowUsers", request, nil)
+	if err, ok := result.(error); ok {
 		return nil, errors.As(err)
 	}
 
-	var response map[string]Status
-	if err := json.Unmarshal(rsp.([]byte), &response); err != nil {
+	var response StatusRsp
+	if err := json.Unmarshal(result.(*RspResult).Message, &response); err != nil {
 		return nil, errors.As(err)
 	}
-
-	if respStatus, ok := response["status"]; ok {
-		return &respStatus, nil
-	}
-
-	return nil, fmt.Errorf("invalid response format")
+	return &response.Status, nil
 }
 
 // JoinChat sends a request to join a chat and returns the joined Channel.
@@ -678,22 +714,17 @@ func (socket *DefaultSocket) JoinChat(target string, chatType int, persistence, 
 		},
 	}
 
-	rsp := socket.Send("channel", "JoinChat", request, nil)
-	if err, ok := rsp.(error); ok {
+	result := socket.Send(_msg_key_channel, "JoinChat", request, nil)
+	if err, ok := result.(error); ok {
 		return nil, errors.As(err)
 	}
 
 	// TODO: some other server push when sent
-	data := map[string]Channel{}
-	if err := json.Unmarshal(rsp.([]byte), &data); err != nil {
-		return nil, errors.As(err)
+	data := ChannelRsp{}
+	if err := json.Unmarshal(result.(*RspResult).Message, &data); err != nil {
+		return nil, errors.As(err, result)
 	}
-
-	if channel, ok := data["channel"]; ok {
-		return &channel, nil
-	}
-
-	return nil, errors.New("invalid response format: missing or invalid channel field").As(string(rsp.([]byte)))
+	return &data.Channel, nil
 }
 
 // JoinMatch sends a request to join a match and returns the joined Match.
@@ -710,21 +741,16 @@ func (socket *DefaultSocket) JoinMatch(matchID, token *string, metadata *map[str
 		request["match_join"].(map[string]interface{})["match_id"] = matchID
 	}
 
-	rsp := socket.Send("match", "JoinMatch", request, nil)
-	if err, ok := rsp.(error); ok {
-		return nil, err
-	}
-
-	matchRsp := map[string]Match{}
-	if err := json.Unmarshal(rsp.([]byte), &matchRsp); err != nil {
+	result := socket.Send(_msg_key_match, "JoinMatch", request, nil)
+	if err, ok := result.(error); ok {
 		return nil, errors.As(err)
 	}
 
-	if match, ok := matchRsp["match"]; ok {
-		return &match, nil
+	matchRsp := &MatchRsp{}
+	if err := json.Unmarshal(result.(*RspResult).Message, matchRsp); err != nil {
+		return nil, errors.As(err)
 	}
-
-	return nil, fmt.Errorf("invalid response format: missing or invalid match field")
+	return &matchRsp.Match, nil
 }
 
 // JoinParty sends a request to join a party.
@@ -735,8 +761,8 @@ func (socket *DefaultSocket) JoinParty(partyID string) error {
 		},
 	}
 
-	rsp := socket.Send("channel", "JoinPatry", request, nil)
-	if err, ok := rsp.(error); ok {
+	result := socket.Send(_msg_key_todo, "JoinPatry", request, nil)
+	if err, ok := result.(error); ok {
 		return errors.As(err)
 	}
 
@@ -753,8 +779,8 @@ func (socket *DefaultSocket) LeaveChat(channelID string) error {
 		},
 	}
 
-	rsp := socket.Send("channel", "LeaveChat", request, nil)
-	if err, ok := rsp.(error); ok {
+	result := socket.Send(_msg_key_todo, "LeaveChat", request, nil)
+	if err, ok := result.(error); ok {
 		return errors.As(err)
 	}
 
@@ -771,8 +797,8 @@ func (socket *DefaultSocket) LeaveMatch(matchID string) error {
 		},
 	}
 
-	rsp := socket.Send("match", "LeaveMatch", request, nil)
-	if err, ok := rsp.(error); ok {
+	result := socket.Send(_msg_key_todo, "LeaveMatch", request, nil)
+	if err, ok := result.(error); ok {
 		return errors.As(err)
 	}
 
@@ -789,8 +815,8 @@ func (socket *DefaultSocket) LeaveParty(partyID string) error {
 		},
 	}
 
-	rsp := socket.Send("channel", "LeaveParty", request, nil)
-	if err, ok := rsp.(error); ok {
+	result := socket.Send(_msg_key_todo, "LeaveParty", request, nil)
+	if err, ok := result.(error); ok {
 		return errors.As(err)
 	}
 
@@ -808,21 +834,17 @@ func (socket *DefaultSocket) ListPartyJoinRequests(partyID string) (*PartyJoinRe
 	}
 
 	// TODO: confirm the main key is channel.
-	rsp := socket.Send(_msg_key_party_join_request, "ListPartyJoinRequests", request, nil)
-	if err, ok := rsp.(error); ok {
+	result := socket.Send(_msg_key_party_join_request, "ListPartyJoinRequests", request, nil)
+	if err, ok := result.(error); ok {
 		return nil, errors.As(err)
 	}
 
-	response := map[string]PartyJoinRequest{}
-	if err := json.Unmarshal(rsp.([]byte), &response); err != nil {
+	response := &PartyJoinRequestRsp{}
+	if err := json.Unmarshal(result.(*RspResult).Message, &response); err != nil {
 		return nil, errors.As(err)
 	}
 
-	if joinRequest, ok := response[_msg_key_party_join_request]; ok {
-		return &joinRequest, nil
-	}
-
-	return nil, fmt.Errorf("invalid response format: missing or invalid party_join_request field")
+	return &response.PartyJoinRequest, nil
 }
 
 // RemoveChatMessage sends a request to remove a chat message and returns the ChannelMessageAck.
@@ -834,17 +856,16 @@ func (socket *DefaultSocket) RemoveChatMessage(channelID, messageID string) (*Ch
 		},
 	}
 
-	rsp := socket.Send(_msg_key_channel_message_ack, "RemoveChatMessage", request, nil)
-	if err, ok := rsp.(error); ok {
+	result := socket.Send(_msg_key_channel_message_ack, "RemoveChatMessage", request, nil)
+	if err, ok := result.(error); ok {
 		return nil, errors.As(err)
 	}
 
-	response := map[string]ChannelMessageAck{}
-	if messageAck, ok := response[_msg_key_channel_message_ack]; ok {
-		return &messageAck, nil
+	response := &ChannelMessageAckRsp{}
+	if err := json.Unmarshal(result.(*RspResult).Message, response); err != nil {
+		return nil, errors.As(err, result)
 	}
-
-	return nil, fmt.Errorf("invalid response format: missing or invalid channel_message_ack field")
+	return &response.ChannelMessageAck, nil
 }
 
 // PromotePartyMember promotes a party member to party leader and returns the new PartyLeader.
@@ -856,20 +877,16 @@ func (socket *DefaultSocket) PromotePartyMember(partyID string, partyMember Pres
 		},
 	}
 
-	rsp := socket.Send(_msg_key_party_leader, "PromotePartyMember", request, nil)
-	if err, ok := rsp.(error); ok {
+	result := socket.Send(_msg_key_party_leader, "PromotePartyMember", request, nil)
+	if err, ok := result.(error); ok {
 		return nil, errors.As(err)
 	}
 
-	response := map[string]PartyLeader{}
-	if err := json.Unmarshal(rsp.([]byte), &response); err != nil {
-		return nil, errors.As(err)
+	response := &PartyLeaderRsp{}
+	if err := json.Unmarshal(result.(*RspResult).Message, &response); err != nil {
+		return nil, errors.As(err, result)
 	}
-	if partyLeader, ok := response["party_leader"]; ok {
-		return &partyLeader, nil
-	}
-
-	return nil, fmt.Errorf("invalid response format: missing or invalid party_leader field")
+	return &response.PartyLeader, nil
 }
 
 // RemoveMatchmaker sends a request to remove a matchmaker ticket.
@@ -880,9 +897,8 @@ func (socket *DefaultSocket) RemoveMatchmaker(ticket string) error {
 		},
 	}
 
-	// TODO: confirm the msg_key
-	rsp := socket.Send(_msg_key_match, "RemoveMatchmaker", request, nil)
-	if err, ok := rsp.(error); ok {
+	result := socket.Send(_msg_key_todo, "RemoveMatchmaker", request, nil)
+	if err, ok := result.(error); ok {
 		return errors.As(err)
 	}
 
@@ -898,9 +914,8 @@ func (socket *DefaultSocket) RemoveMatchmakerParty(partyID, ticket string) error
 		},
 	}
 
-	// TODO: confirm the msg_key
-	rsp := socket.Send(_msg_key_match, "RemoveMatchmakerParty", request, nil)
-	if err, ok := rsp.(error); ok {
+	result := socket.Send(_msg_key_todo, "RemoveMatchmakerParty", request, nil)
+	if err, ok := result.(error); ok {
 		return errors.As(err)
 	}
 
@@ -916,9 +931,8 @@ func (socket *DefaultSocket) RemovePartyMember(partyID string, member Presence) 
 		},
 	}
 
-	// TODO: confirm the msg_key
-	rsp := socket.Send(_msg_key_channel, "RemovePartyMemeber", request, nil)
-	if err, ok := rsp.(error); ok {
+	result := socket.Send(_msg_key_todo, "RemovePartyMemeber", request, nil)
+	if err, ok := result.(error); ok {
 		return errors.As(err)
 	}
 
@@ -935,17 +949,16 @@ func (socket *DefaultSocket) Rpc(id, payload, httpKey string) (*ApiRpc, error) {
 		},
 	}
 
-	rsp := socket.Send(_msg_key_rpc, "Rpc", request, nil)
-	if err, ok := rsp.(error); ok {
+	result := socket.Send(_msg_key_rpc, "Rpc", request, nil)
+	if err, ok := result.(error); ok {
 		return nil, errors.As(err)
 	}
 
-	response := map[string]ApiRpc{}
-	if rpc, ok := response[_msg_key_rpc]; ok {
-		return &rpc, nil
+	response := &ApiRpcRsp{}
+	if err := json.Unmarshal(result.(*RspResult).Message, response); err != nil {
+		return nil, errors.As(err, result)
 	}
-
-	return nil, fmt.Errorf("invalid response format: missing or invalid rpc field")
+	return &response.ApiRpc, nil
 }
 
 // SendMatchState sends match state updates to the server.
@@ -961,8 +974,8 @@ func (socket *DefaultSocket) SendMatchState(matchID string, opCode int, data int
 	}
 
 	// TODO: confirm the msg_key
-	rsp := socket.Send(_msg_key_match, "SendMatchState", request, nil)
-	if err, ok := rsp.(error); ok {
+	result := socket.Send(_msg_key_match, "SendMatchState", request, nil)
+	if err, ok := result.(error); ok {
 		return errors.As(err)
 	}
 
@@ -979,8 +992,8 @@ func (socket *DefaultSocket) SendPartyData(partyID string, opCode int, data inte
 		},
 	}
 
-	rsp := socket.Send(_msg_key_todo, "SendPartyData", request, nil)
-	if err, ok := rsp.(error); ok {
+	result := socket.Send(_msg_key_todo, "SendPartyData", request, nil)
+	if err, ok := result.(error); ok {
 		return errors.As(err)
 	}
 
@@ -995,8 +1008,8 @@ func (socket *DefaultSocket) UnfollowUsers(userIDs []string) error {
 		},
 	}
 
-	rsp := socket.Send(_msg_key_todo, "UnfollowUsers", request, nil)
-	if err, ok := rsp.(error); ok {
+	result := socket.Send(_msg_key_todo, "UnfollowUsers", request, nil)
+	if err, ok := result.(error); ok {
 		return errors.As(err)
 	}
 
@@ -1013,20 +1026,16 @@ func (socket *DefaultSocket) UpdateChatMessage(channelID, messageID string, cont
 		},
 	}
 
-	rsp := socket.Send(_msg_key_channel_message_ack, "UpdateChatMessage", request, nil)
-	if err, ok := rsp.(error); ok {
+	result := socket.Send(_msg_key_channel_message_ack, "UpdateChatMessage", request, nil)
+	if err, ok := result.(error); ok {
 		return nil, errors.As(err)
 	}
 
-	response := map[string]ChannelMessageAck{}
-	if err := json.Unmarshal(rsp.([]byte), &response); err != nil {
+	response := &ChannelMessageAckRsp{}
+	if err := json.Unmarshal(result.(*RspResult).Message, &response); err != nil {
 		return nil, errors.As(err)
 	}
-	if messageAck, ok := response["channel_message_ack"]; ok {
-		return &messageAck, nil
-	}
-
-	return nil, fmt.Errorf("invalid response format: missing or invalid channel_message_ack field")
+	return &response.ChannelMessageAck, nil
 }
 
 // UpdateStatus sends a status update to the server.
@@ -1037,8 +1046,8 @@ func (socket *DefaultSocket) UpdateStatus(status *string) error {
 		},
 	}
 
-	rsp := socket.Send(_msg_key_todo, "UpdateStatus", request, nil)
-	if err, ok := rsp.(error); ok {
+	result := socket.Send(_msg_key_todo, "UpdateStatus", request, nil)
+	if err, ok := result.(error); ok {
 		return errors.As(err)
 	}
 
@@ -1054,20 +1063,16 @@ func (socket *DefaultSocket) WriteChatMessage(channelID string, content interfac
 		},
 	}
 
-	rsp := socket.Send(_msg_key_channel_message_ack, "WriteChatMessage", request, nil)
-	if err, ok := rsp.(error); ok {
+	result := socket.Send(_msg_key_channel_message_ack, "WriteChatMessage", request, nil)
+	if err, ok := result.(error); ok {
 		return nil, errors.As(err)
 	}
 
-	response := map[string]ChannelMessageAck{}
-	if err := json.Unmarshal(rsp.([]byte), &response); err != nil {
+	response := &ChannelMessageAckRsp{}
+	if err := json.Unmarshal(result.(*RspResult).Message, &response); err != nil {
 		return nil, errors.As(err)
 	}
-	if messageAck, ok := response[_msg_key_channel_message_ack]; ok {
-		return &messageAck, nil
-	}
-
-	return nil, fmt.Errorf("invalid response format: missing or invalid channel_message_ack field")
+	return &response.ChannelMessageAck, nil
 }
 
 // pingPong does a periodic ping-pong check with the server.
@@ -1080,8 +1085,8 @@ func (socket *DefaultSocket) pingPong() {
 		select {
 		case <-ticker.C:
 			ping := map[string]interface{}{"ping": struct{}{}}
-			rsp := socket.Send(_msg_key_ping, "pingPong", ping, &socket.HeartbeatTimeoutMs)
-			if err, ok := rsp.(error); ok {
+			result := socket.Send(_msg_key_ping, "pingPong", ping, &socket.HeartbeatTimeoutMs)
+			if err, ok := result.(error); ok {
 				log.Println("after pingpong socket is nil:", socket.Adapter.socket == nil)
 				log.Println("Failed to send ping:", err)
 				if socket.Adapter.IsOpen() {
