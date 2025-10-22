@@ -238,7 +238,13 @@ func (socket *DefaultSocket) handleMessage(mType int, message []byte, handle fun
 	if len(cid) > 0 {
 		rsp, ok := socket.cIds.Load(cid)
 		if ok {
-			rsp.(chan any) <- result
+			err, ok := decoded.GetMessage().(*rtapi.Envelope_Error)
+			if ok {
+				rsp.(chan any) <- errors.New(err.Error.Message).As(err.Error)
+			} else {
+				rsp.(chan any) <- result
+			}
+
 			return nil
 		}
 	}
