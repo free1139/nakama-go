@@ -165,7 +165,6 @@ func (socket *DefaultSocket) onDisconnect(evt error) {
 	if socket.userClosed.Load() {
 		return
 	}
-	// TODO: try reconnect
 }
 
 // OnError handles WebSocket errors.
@@ -173,11 +172,12 @@ func (socket *DefaultSocket) onError(evt error) {
 	if socket.Verbose {
 		log.Info("OnError:", evt)
 	}
-	if socket.userClosed.Load() {
-		return
-	}
+
 	// TODO: try reconnect
-	for i := 10; i > 0; i-- {
+	for {
+		if socket.userClosed.Load() {
+			return
+		}
 		if err := socket.Adapter.connect(); err == nil {
 			log.Warn("retry failed", errors.As(err))
 			time.Sleep(3e9)
