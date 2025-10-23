@@ -177,6 +177,14 @@ func (socket *DefaultSocket) onError(evt error) {
 		return
 	}
 	// TODO: try reconnect
+	for i := 10; i > 0; i-- {
+		if err := socket.Adapter.connect(); err == nil {
+			log.Warn("retry failed", errors.As(err))
+			time.Sleep(3e9)
+			continue
+		}
+		return
+	}
 }
 
 // handleEncodedData handles encoding of match_data_send and party_data_send fields.
@@ -259,7 +267,9 @@ func (socket *DefaultSocket) handleMessage(mType int, message []byte, handle fun
 // any should be error or []byte or Rsp pointer
 func (socket *DefaultSocket) Send(message *rtapi.Envelope, sendTimeout *int) any {
 	if !socket.Adapter.IsOpen() {
-		return errors.New("socket connection is not established")
+		if err := socket.Adapter.connect(); err != nil {
+			return errors.New("socket connection is not established")
+		}
 	}
 
 	rsp := make(chan any, 1)

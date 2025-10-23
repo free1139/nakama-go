@@ -16,6 +16,7 @@ import (
 
 // WebSocketAdapter is a text-based WebSocket adapter for transmitting payloads over UTF-8.
 type WebSocketAdapter struct {
+	uri       string
 	socket    *websocket.Conn
 	onClose   func(err error)
 	onError   func(err error)
@@ -48,22 +49,25 @@ func (w *WebSocketAdapter) Close() {
 
 // Connect connects to the WebSocket using the specified arguments.
 func (w *WebSocketAdapter) Connect(scheme, host, port string, createStatus bool, token string) error {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-
-	urlStr := fmt.Sprintf("%s%s:%s/ws?lang=en&status=%s&token=%s",
+	w.uri = fmt.Sprintf("%s%s:%s/ws?lang=en&status=%s&token=%s",
 		scheme,
 		host,
 		port,
 		url.QueryEscape(fmt.Sprintf("%v", createStatus)),
 		url.QueryEscape(token),
 	)
+	return w.connect()
+}
+
+func (w *WebSocketAdapter) connect() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
 
 	var err error
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	w.socket, _, err = websocket.Dial(ctx, urlStr, nil)
+	w.socket, _, err = websocket.Dial(ctx, w.uri, nil)
 	if err != nil {
 		return err
 	}
