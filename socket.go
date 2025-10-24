@@ -62,41 +62,57 @@ const (
 
 // DefaultSocket represents a WebSocket connection to the Nakama server
 type DefaultSocket struct {
-	Host               string
-	Port               string
-	UseSSL             bool
-	Verbose            bool
-	Adapter            *WebSocketAdapter
-	SendTimeoutMs      int
-	HeartbeatTimeoutMs int
-	cIds               sync.Map // string:chan any
-	nextCid            int
+	verbose            bool
+	adapter            *WebSocketAdapter
+	sendTimeoutMs      int
+	heartbeatTimeoutMs int
+
+	cIds    sync.Map // string:chan any
+	nextCid int
 
 	userClosed    atomic.Bool
 	joinChatStack sync.Map
 }
 
 // NewDefaultSocket creates an instance of DefaultSocket.
-func NewDefaultSocket(host, port string, useSSL, verbose bool, adapter *WebSocketAdapter, sendTimeoutMs *int) *DefaultSocket {
-	if adapter == nil {
-		adapter = NewWebSocketAdapterText()
-	}
+func NewDefaultSocket(userMsgHandle func(*RspResult) bool, host, port, token string, useSSL, verbose bool, sendTimeoutMs *int, createStatus *bool) *DefaultSocket {
 	if sendTimeoutMs == nil {
 		defaultTimeout := DefaultSendTimeoutMs
 		sendTimeoutMs = &defaultTimeout
 	}
 
-	return &DefaultSocket{
-		Host:               host,
-		Port:               port,
-		UseSSL:             useSSL,
-		Verbose:            verbose,
-		Adapter:            adapter,
-		SendTimeoutMs:      *sendTimeoutMs,
-		HeartbeatTimeoutMs: DefaultHeartbeatTimeoutMs,
+	if createStatus == nil {
+		defaultStatus := false
+		createStatus = &defaultStatus
+	}
+
+	scheme := "ws://"
+	if useSSL {
+		scheme = "wss://"
+	}
+
+	socket := &DefaultSocket{
+		verbose:            verbose,
+		sendTimeoutMs:      *sendTimeoutMs,
+		heartbeatTimeoutMs: DefaultHeartbeatTimeoutMs,
 		cIds:               sync.Map{},
 		nextCid:            1,
 	}
+	adapter := NewWebSocketAdapterText(scheme, host, port, *createStatus, token)
+	adapter.onClose = socket.onDisconnect
+	adapter.onError = socket.onError
+	adapter.onMessage = func(mType int, message []byte) {
+		if err := socket.handleMessage(mType, message, userMsgHandle); err != nil {
+			log.Warn(errors.As(err))
+		}
+	}
+	adapter.onOpen = func(event interface{}) error {
+		log.Printf("Socket opened: %v\n", event)
+		go socket.pingPong(context.TODO())
+		return nil
+	}
+	socket.adapter = adapter
+	return socket
 }
 
 // GenerateCID generates a unique client ID for requests.
@@ -107,45 +123,10 @@ func (socket *DefaultSocket) GenerateCID() string {
 }
 
 // Connect establishes the WebSocket connection with optional timeouts.
-func (socket *DefaultSocket) Connect(session *Session, createStatus *bool, timeoutMs *int, userMsgHandle func(*RspResult) bool) error {
-	if createStatus == nil {
-		defaultStatus := false
-		createStatus = &defaultStatus
-	}
-
-	if timeoutMs == nil {
-		defaultTimeout := DefaultConnectTimeoutMs
-		timeoutMs = &defaultTimeout
-	}
-
-	scheme := "ws://"
-	if socket.UseSSL {
-		scheme = "wss://"
-	}
-	if !checkStr(session.Token) {
-		return errors.New("Invalid token")
-	}
-
-	if err := socket.Adapter.Connect(scheme, socket.Host, socket.Port, *createStatus, *session.Token); err != nil {
+func (socket *DefaultSocket) Connect() error {
+	if err := socket.adapter.Connect(); err != nil {
 		return errors.As(err)
 	}
-
-	socket.Adapter.onClose = socket.onDisconnect
-
-	socket.Adapter.onError = socket.onError
-
-	socket.Adapter.onMessage = func(mType int, message []byte) {
-		if err := socket.handleMessage(mType, message, userMsgHandle); err != nil {
-			log.Warn(errors.As(err))
-		}
-	}
-
-	socket.Adapter.onOpen = func(event interface{}) error {
-		log.Printf("Socket opened: %v\n", event)
-		go socket.pingPong(context.TODO())
-		return nil
-	}
-
 	return nil
 
 }
@@ -153,8 +134,8 @@ func (socket *DefaultSocket) Connect(session *Session, createStatus *bool, timeo
 // Disconnect terminates the WebSocket connection.
 func (socket *DefaultSocket) Disconnect(fireDisconnectEvent bool) {
 	socket.userClosed.Store(true)
-	if socket.Adapter.IsOpen() {
-		socket.Adapter.Close()
+	if socket.adapter.IsOpen() {
+		socket.adapter.Close()
 	}
 	if fireDisconnectEvent {
 		socket.onDisconnect(fmt.Errorf("socket disconnected"))
@@ -163,17 +144,17 @@ func (socket *DefaultSocket) Disconnect(fireDisconnectEvent bool) {
 
 // SetHeartbeatTimeoutMs sets the timeout for heartbeat pings.
 func (socket *DefaultSocket) SetHeartbeatTimeoutMs(ms int) {
-	socket.HeartbeatTimeoutMs = ms
+	socket.heartbeatTimeoutMs = ms
 }
 
 // GetHeartbeatTimeoutMs gets the timeout for heartbeat pings.
 func (socket *DefaultSocket) GetHeartbeatTimeoutMs() int {
-	return socket.HeartbeatTimeoutMs
+	return socket.heartbeatTimeoutMs
 }
 
 // OnDisconnect handles WebSocket disconnections.
 func (socket *DefaultSocket) onDisconnect(evt error) {
-	if socket.Verbose {
+	if socket.verbose {
 		log.Info("OnDisconnect:", evt)
 	}
 	if socket.userClosed.Load() {
@@ -186,13 +167,19 @@ func (socket *DefaultSocket) reconnect(tryTimes int) error {
 		if socket.userClosed.Load() {
 			return errors.New("user has closed the connection")
 		}
-		if err := socket.Adapter.connect(); err == nil {
-			log.Warn("retry failed", errors.As(err))
+		if socket.adapter.IsOpen() {
+			return nil
+		}
+
+		if err := socket.adapter.Connect(); err != nil {
+			log.Warn("retry failed", errors.As(err, i))
 			time.Sleep(3e9)
 			continue
 		}
+
 		// restore the chats
 		socket.joinChatStack.Range(func(k, v any) bool {
+			log.Debugf("reconnect talk, k:%+v", k)
 			originJoin := v.(*rtapi.ChannelJoin)
 			rejoinChannel, err := socket.joinChat(originJoin)
 			if err != nil {
@@ -200,18 +187,18 @@ func (socket *DefaultSocket) reconnect(tryTimes int) error {
 				return true // continue range
 			}
 			if rejoinChannel.Id != k.(string) {
-				log.Error(errors.New("auto rejoin the channel not match").As(k, rejoinChannel.Id))
+				log.Error(errors.New("Auto reconnect the channel not match").As(k, rejoinChannel.Id))
 			}
 			return true // continue range
 		})
 		return nil
 	}
-	return errors.New("connection failed")
+	return errors.New("reconnection failed")
 }
 
 // OnError handles WebSocket errors.
 func (socket *DefaultSocket) onError(evt error) {
-	if socket.Verbose {
+	if socket.verbose {
 		log.Info("OnError:", evt)
 	}
 	socket.reconnect(math.MaxInt)
@@ -305,7 +292,7 @@ func (socket *DefaultSocket) handleMessage(mType int, message []byte, handle fun
 // Send sends a message to the WebSocket server with optional timeout.
 // any should be error or []byte or Rsp pointer
 func (socket *DefaultSocket) Send(message *rtapi.Envelope, sendTimeout *int) any {
-	if !socket.Adapter.IsOpen() {
+	if !socket.adapter.IsOpen() {
 		if err := socket.reconnect(3); err != nil {
 			return errors.As(err)
 		}
@@ -326,7 +313,7 @@ func (socket *DefaultSocket) Send(message *rtapi.Envelope, sendTimeout *int) any
 	//	handleEncodedData(msgMap, "party_data_send")
 	//}
 
-	if err := socket.Adapter.Send(message); err != nil {
+	if err := socket.adapter.Send(message); err != nil {
 		return errors.As(err)
 	}
 
@@ -786,9 +773,9 @@ func (socket *DefaultSocket) WriteChatMessage(channelID, content string) (*rtapi
 
 // pingPong does a periodic ping-pong check with the server.
 func (socket *DefaultSocket) pingPong(ctx context.Context) {
-	ticker := time.NewTicker(time.Duration(socket.HeartbeatTimeoutMs) * time.Millisecond)
+	ticker := time.NewTicker(time.Duration(socket.heartbeatTimeoutMs) * time.Millisecond)
 	defer ticker.Stop()
-	log.Println("before pingpong socket is nil:", socket.Adapter.socket == nil)
+	log.Println("before pingpong socket is nil:", socket.adapter.socket == nil)
 
 	pingReq := &rtapi.Envelope{
 		Message: &rtapi.Envelope_Ping{
@@ -799,13 +786,13 @@ func (socket *DefaultSocket) pingPong(ctx context.Context) {
 	for {
 		select {
 		case <-ticker.C:
-			result := socket.Send(pingReq, &socket.HeartbeatTimeoutMs)
+			result := socket.Send(pingReq, &socket.heartbeatTimeoutMs)
 			if err, ok := result.(error); ok {
-				log.Println("after pingpong socket is nil:", socket.Adapter.socket == nil)
+				log.Println("after pingpong socket is nil:", socket.adapter.socket == nil)
 				log.Println("Failed to send ping:", err)
-				if socket.Adapter.IsOpen() {
+				if socket.adapter.IsOpen() {
 					socket.OnHeartbeatTimeout()
-					socket.Adapter.Close()
+					socket.adapter.Close()
 				}
 				return
 			}
@@ -817,7 +804,7 @@ func (socket *DefaultSocket) pingPong(ctx context.Context) {
 
 // OnHeartbeatTimeout handles heartbeat timeouts.
 func (socket *DefaultSocket) OnHeartbeatTimeout() {
-	if socket.Verbose {
+	if socket.verbose {
 		fmt.Println("Heartbeat timeout")
 	}
 }

@@ -26,8 +26,16 @@ type WebSocketAdapter struct {
 }
 
 // NewWebSocketAdapterText creates a new instance of WebSocketAdapter.
-func NewWebSocketAdapterText() *WebSocketAdapter {
-	return &WebSocketAdapter{}
+func NewWebSocketAdapterText(scheme, host, port string, createStatus bool, token string) *WebSocketAdapter {
+	return &WebSocketAdapter{
+		uri: fmt.Sprintf("%s%s:%s/ws?lang=en&status=%s&token=%s",
+			scheme,
+			host,
+			port,
+			url.QueryEscape(fmt.Sprintf("%v", createStatus)),
+			url.QueryEscape(token),
+		),
+	}
 }
 
 // IsOpen determines if the WebSocket connection is open.
@@ -48,20 +56,13 @@ func (w *WebSocketAdapter) Close() {
 }
 
 // Connect connects to the WebSocket using the specified arguments.
-func (w *WebSocketAdapter) Connect(scheme, host, port string, createStatus bool, token string) error {
-	w.uri = fmt.Sprintf("%s%s:%s/ws?lang=en&status=%s&token=%s",
-		scheme,
-		host,
-		port,
-		url.QueryEscape(fmt.Sprintf("%v", createStatus)),
-		url.QueryEscape(token),
-	)
-	return w.connect()
-}
-
-func (w *WebSocketAdapter) connect() error {
+func (w *WebSocketAdapter) Connect() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+
+	if len(w.uri) == 0 {
+		return errors.New("uri not set")
+	}
 
 	var err error
 
