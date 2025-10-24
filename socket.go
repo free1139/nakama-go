@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"math"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -14,6 +15,19 @@ import (
 	"github.com/heroiclabs/nakama-common/rtapi"
 	"google.golang.org/protobuf/encoding/protojson"
 	wrapperspb "google.golang.org/protobuf/types/known/wrapperspb"
+)
+
+const (
+	ChannelMessageTypeChat int32 = iota
+	ChannelMessageTypeChatUpdate
+	ChannelMessageTypeChatRemove
+	ChannelMessageTypeGroupJoin
+	ChannelMessageTypeGroupAdd
+	ChannelMessageTypeGroupLeave
+	ChannelMessageTypeGroupKick
+	ChannelMessageTypeGroupPromote
+	ChannelMessageTypeGroupBan
+	ChannelMessageTypeGroupDemote
 )
 
 type RspResult struct {
@@ -58,8 +72,8 @@ type DefaultSocket struct {
 	cIds               sync.Map // string:chan any
 	nextCid            int
 
-	userClosed     atomic.Bool
-	reconnectTimes atomic.Int32
+	userClosed    atomic.Bool
+	joinChatStack sync.Map
 }
 
 // NewDefaultSocket creates an instance of DefaultSocket.
@@ -93,7 +107,7 @@ func (socket *DefaultSocket) GenerateCID() string {
 }
 
 // Connect establishes the WebSocket connection with optional timeouts.
-func (socket *DefaultSocket) Connect(session *Session, createStatus *bool, timeoutMs *int, userHandle func(*RspResult) bool) error {
+func (socket *DefaultSocket) Connect(session *Session, createStatus *bool, timeoutMs *int, userMsgHandle func(*RspResult) bool) error {
 	if createStatus == nil {
 		defaultStatus := false
 		createStatus = &defaultStatus
@@ -121,7 +135,7 @@ func (socket *DefaultSocket) Connect(session *Session, createStatus *bool, timeo
 	socket.Adapter.onError = socket.onError
 
 	socket.Adapter.onMessage = func(mType int, message []byte) {
-		if err := socket.handleMessage(mType, message, userHandle); err != nil {
+		if err := socket.handleMessage(mType, message, userMsgHandle); err != nil {
 			log.Warn(errors.As(err))
 		}
 	}
@@ -167,24 +181,40 @@ func (socket *DefaultSocket) onDisconnect(evt error) {
 	}
 }
 
-// OnError handles WebSocket errors.
-func (socket *DefaultSocket) onError(evt error) {
-	if socket.Verbose {
-		log.Info("OnError:", evt)
-	}
-
-	// TODO: try reconnect
-	for {
+func (socket *DefaultSocket) reconnect(tryTimes int) error {
+	for i := tryTimes; i > 0; i-- {
 		if socket.userClosed.Load() {
-			return
+			return errors.New("user has closed the connection")
 		}
 		if err := socket.Adapter.connect(); err == nil {
 			log.Warn("retry failed", errors.As(err))
 			time.Sleep(3e9)
 			continue
 		}
-		return
+		// restore the chats
+		socket.joinChatStack.Range(func(k, v any) bool {
+			originJoin := v.(*rtapi.ChannelJoin)
+			rejoinChannel, err := socket.joinChat(originJoin)
+			if err != nil {
+				log.Warn(errors.As(err))
+				return true // continue range
+			}
+			if rejoinChannel.Id != k.(string) {
+				log.Error(errors.New("auto rejoin the channel not match").As(k, rejoinChannel.Id))
+			}
+			return true // continue range
+		})
+		return nil
 	}
+	return errors.New("connection failed")
+}
+
+// OnError handles WebSocket errors.
+func (socket *DefaultSocket) onError(evt error) {
+	if socket.Verbose {
+		log.Info("OnError:", evt)
+	}
+	socket.reconnect(math.MaxInt)
 }
 
 // handleEncodedData handles encoding of match_data_send and party_data_send fields.
@@ -257,6 +287,15 @@ func (socket *DefaultSocket) handleMessage(mType int, message []byte, handle fun
 		}
 	}
 
+	// deal the kick channel event and more.
+	if event, ok := decoded.GetMessage().(*rtapi.Envelope_ChannelMessage); ok {
+		// {"channel_message":{"channel_id":"3.4f634582-8cd0-4fd8-a71c-3e093ae30cf2..", "message_id":"1bdac70c-9d0e-4c6b-ad1d-bd969f95e1bf", "code":6, "sender_id":"f5996e0c-37da-421f-a7e6-df78eb4c79ad", "username":"z1", "content":"{}", "create_time":"2025-10-24T09:00:46.033690893Z", "update_time":"2025-10-24T09:00:46.033690893Z", "persistent":true, "group_id":"4f634582-8cd0-4fd8-a71c-3e093ae30cf2"}}
+		msg := event.ChannelMessage
+		if msg.Code != nil && msg.Code.Value == ChannelMessageTypeGroupKick {
+			socket.joinChatStack.Delete(msg.ChannelId)
+		}
+	}
+
 	// unknow message, notify to caller
 	handle(result)
 	return nil
@@ -267,8 +306,8 @@ func (socket *DefaultSocket) handleMessage(mType int, message []byte, handle fun
 // any should be error or []byte or Rsp pointer
 func (socket *DefaultSocket) Send(message *rtapi.Envelope, sendTimeout *int) any {
 	if !socket.Adapter.IsOpen() {
-		if err := socket.Adapter.connect(); err != nil {
-			return errors.New("socket connection is not established")
+		if err := socket.reconnect(3); err != nil {
+			return errors.As(err)
 		}
 	}
 
@@ -359,16 +398,10 @@ func (socket *DefaultSocket) FollowUsers(userIds []string) (*rtapi.Status, error
 	return result.(*RspResult).Decoded.GetMessage().(*rtapi.Envelope_Status).Status, nil
 }
 
-// JoinChat sends a request to join a chat and returns the joined Channel.
-func (socket *DefaultSocket) JoinChat(target string, chatType int32, persistence, hidden bool) (*rtapi.Channel, error) {
+func (socket *DefaultSocket) joinChat(target *rtapi.ChannelJoin) (*rtapi.Channel, error) {
 	req := &rtapi.Envelope{
 		Message: &rtapi.Envelope_ChannelJoin{
-			ChannelJoin: &rtapi.ChannelJoin{
-				Target:      target,
-				Type:        chatType,
-				Persistence: wrapperspb.Bool(persistence),
-				Hidden:      wrapperspb.Bool(hidden),
-			},
+			ChannelJoin: target,
 		},
 	}
 
@@ -377,6 +410,23 @@ func (socket *DefaultSocket) JoinChat(target string, chatType int32, persistence
 		return nil, errors.As(err)
 	}
 	return result.(*RspResult).Decoded.GetMessage().(*rtapi.Envelope_Channel).Channel, nil
+}
+
+// JoinChat sends a request to join a chat and returns the joined Channel.
+func (socket *DefaultSocket) JoinChat(target string, chatType int32, persistence, hidden bool) (*rtapi.Channel, error) {
+	targetChannel := &rtapi.ChannelJoin{
+		Target:      target,
+		Type:        chatType,
+		Persistence: wrapperspb.Bool(persistence),
+		Hidden:      wrapperspb.Bool(hidden),
+	}
+	channel, err := socket.joinChat(targetChannel)
+	if err != nil {
+		return nil, errors.As(err)
+	}
+	// stash the the chat, and restore when socket reconnected.
+	socket.joinChatStack.Store(channel.Id, targetChannel)
+	return channel, nil
 }
 
 // JoinMatch sends a request to join a match and returns the joined Match.
@@ -442,6 +492,7 @@ func (socket *DefaultSocket) LeaveChat(channelID string) error {
 
 	// TODO: decode?
 
+	socket.joinChatStack.Delete(channelID)
 	return nil
 }
 
