@@ -18,10 +18,8 @@ import (
 type WebSocketAdapter struct {
 	uri       string
 	socket    *websocket.Conn
-	onClose   func(err error)
 	onError   func(err error)
 	onMessage func(mType int, message []byte)
-	onOpen    func(event interface{}) error
 	mu        sync.Mutex // To guard websocket connection reference
 }
 

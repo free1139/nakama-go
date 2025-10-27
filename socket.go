@@ -30,10 +30,19 @@ const (
 	ChannelMessageTypeGroupDemote
 )
 
+const (
+	EventTypeConnect   = 0
+	EventTypeMessage   = 1
+	EventTypeReconnect = 2
+	EventTypeConnected = 3
+)
+
 type RspResult struct {
 	Decoded *rtapi.Envelope // try parse, maybe nil
 	Message []byte          // origin data
 }
+
+type EventHandler func(event int, data *RspResult)
 
 // Socket defines the Go struct with corresponding methods.
 type Socket interface {
@@ -66,6 +75,7 @@ type DefaultSocket struct {
 	adapter            *WebSocketAdapter
 	sendTimeoutMs      int
 	heartbeatTimeoutMs int
+	eventHandle        EventHandler
 
 	cIds    sync.Map // string:chan any
 	nextCid int
@@ -75,7 +85,7 @@ type DefaultSocket struct {
 }
 
 // NewDefaultSocket creates an instance of DefaultSocket.
-func NewDefaultSocket(userMsgHandle func(*RspResult) bool, host, port, token string, useSSL, verbose bool, sendTimeoutMs *int, createStatus *bool) *DefaultSocket {
+func NewDefaultSocket(eventHandle EventHandler, host, port, token string, useSSL, verbose bool, sendTimeoutMs *int, createStatus *bool) *DefaultSocket {
 	if sendTimeoutMs == nil {
 		defaultTimeout := DefaultSendTimeoutMs
 		sendTimeoutMs = &defaultTimeout
@@ -95,21 +105,16 @@ func NewDefaultSocket(userMsgHandle func(*RspResult) bool, host, port, token str
 		verbose:            verbose,
 		sendTimeoutMs:      *sendTimeoutMs,
 		heartbeatTimeoutMs: DefaultHeartbeatTimeoutMs,
+		eventHandle:        eventHandle,
 		cIds:               sync.Map{},
 		nextCid:            1,
 	}
 	adapter := NewWebSocketAdapterText(scheme, host, port, *createStatus, token)
-	adapter.onClose = socket.onDisconnect
 	adapter.onError = socket.onError
 	adapter.onMessage = func(mType int, message []byte) {
-		if err := socket.handleMessage(mType, message, userMsgHandle); err != nil {
+		if err := socket.handleMessage(mType, message); err != nil {
 			log.Warn(errors.As(err))
 		}
-	}
-	adapter.onOpen = func(event interface{}) error {
-		log.Printf("Socket opened: %v\n", event)
-		go socket.pingPong(context.TODO())
-		return nil
 	}
 	socket.adapter = adapter
 	return socket
@@ -124,21 +129,22 @@ func (socket *DefaultSocket) GenerateCID() string {
 
 // Connect establishes the WebSocket connection with optional timeouts.
 func (socket *DefaultSocket) Connect() error {
+	socket.eventHandle(EventTypeConnect, nil)
 	if err := socket.adapter.Connect(); err != nil {
 		return errors.As(err)
 	}
+	go socket.pingPong(context.TODO())
+
+	socket.eventHandle(EventTypeConnected, nil)
 	return nil
 
 }
 
 // Disconnect terminates the WebSocket connection.
-func (socket *DefaultSocket) Disconnect(fireDisconnectEvent bool) {
+func (socket *DefaultSocket) Disconnect() {
 	socket.userClosed.Store(true)
 	if socket.adapter.IsOpen() {
 		socket.adapter.Close()
-	}
-	if fireDisconnectEvent {
-		socket.onDisconnect(fmt.Errorf("socket disconnected"))
 	}
 }
 
@@ -152,17 +158,10 @@ func (socket *DefaultSocket) GetHeartbeatTimeoutMs() int {
 	return socket.heartbeatTimeoutMs
 }
 
-// OnDisconnect handles WebSocket disconnections.
-func (socket *DefaultSocket) onDisconnect(evt error) {
-	if socket.verbose {
-		log.Info("OnDisconnect:", evt)
-	}
-	if socket.userClosed.Load() {
-		return
-	}
-}
-
 func (socket *DefaultSocket) reconnect(tryTimes int) error {
+	if socket.eventHandle != nil {
+		socket.eventHandle(EventTypeReconnect, nil)
+	}
 	for i := tryTimes; i > 0; i-- {
 		if socket.userClosed.Load() {
 			return errors.New("user has closed the connection")
@@ -243,15 +242,18 @@ func decodeReceivedData(msg map[string]interface{}, field string) {
 }
 
 // HandleMessage processes incoming WebSocket messages.
-func (socket *DefaultSocket) handleMessage(mType int, message []byte, handle func(*RspResult) bool) error {
+func (socket *DefaultSocket) handleMessage(mType int, message []byte) error {
 	//log.Debugf("message_type:%d, message:%s", mType, string(message))
 
 	result := &RspResult{Message: message}
 	// try find the request cid
 	decoded := &rtapi.Envelope{}
 	if err := protojson.Unmarshal(message, decoded); err != nil {
-		handle(result)
-		return nil
+		if socket.eventHandle != nil {
+			socket.eventHandle(EventTypeMessage, result)
+			return nil
+		}
+		return errors.As(err)
 	}
 	result.Decoded = decoded
 
@@ -284,7 +286,9 @@ func (socket *DefaultSocket) handleMessage(mType int, message []byte, handle fun
 	}
 
 	// unknow message, notify to caller
-	handle(result)
+	if socket.eventHandle != nil {
+		socket.eventHandle(EventTypeMessage, result)
+	}
 	return nil
 
 }

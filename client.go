@@ -648,8 +648,8 @@ func (c *Client) CreateGroup(session *Session, request ApiCreateGroupRequest) (*
 }
 
 // CreateSocket creates a socket using the client's configuration.
-func (c *Client) CreateSocket(userMsgHandle func(*RspResult) bool, token string, useSSL bool, verbose bool, sendTimeoutMs *int, createStatus *bool) *DefaultSocket {
-	return NewDefaultSocket(userMsgHandle, c.Host, c.Port, token, useSSL, verbose, sendTimeoutMs, createStatus)
+func (c *Client) CreateSocket(eventHandle EventHandler, token string, useSSL bool, verbose bool, sendTimeoutMs *int, createStatus *bool) *DefaultSocket {
+	return NewDefaultSocket(eventHandle, c.Host, c.Port, token, useSSL, verbose, sendTimeoutMs, createStatus)
 }
 
 // DeleteAccount deletes the current user's account.
