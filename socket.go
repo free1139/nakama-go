@@ -178,7 +178,7 @@ func (socket *DefaultSocket) reconnect(tryTimes int) error {
 
 		// restore the chats
 		socket.joinChatStack.Range(func(k, v any) bool {
-			log.Debugf("reconnect talk, k:%+v", k)
+			log.Debugf("reconnect talk, key:%+v", k)
 			originJoin := v.(*rtapi.ChannelJoin)
 			rejoinChannel, err := socket.joinChat(originJoin)
 			if err != nil {
