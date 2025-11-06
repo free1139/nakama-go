@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"math"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -36,6 +37,7 @@ const (
 	EventTypeReconnecting = EventType(2)
 	EventTypeConnected    = EventType(3)
 	EventTypePingPong     = EventType(4)
+	// TODO: need closed?
 )
 
 type EventType int
@@ -99,7 +101,6 @@ type DefaultSocket struct {
 	cIds    sync.Map // string:chan any
 	nextCid int
 
-	pingUsed      time.Duration
 	userClosed    atomic.Bool
 	joinChatStack sync.Map
 }
@@ -142,7 +143,7 @@ func NewDefaultSocket(eventHandle EventHandler, host, port, token string, useSSL
 
 // GenerateCID generates a unique client ID for requests.
 func (socket *DefaultSocket) GenerateCID() string {
-	cid := fmt.Sprintf("%d", socket.nextCid)
+	cid := strconv.FormatInt(int64(socket.nextCid), 16)
 	socket.nextCid++
 	return cid
 }
@@ -816,8 +817,7 @@ func (socket *DefaultSocket) pingPong(ctx context.Context) {
 				log.Println("Failed to send ping:", err)
 				continue
 			}
-			socket.pingUsed = time.Now().Sub(starTime)
-			socket.eventHandle(EventTypePingPong, &RspResult{Message: socket.pingUsed})
+			socket.eventHandle(EventTypePingPong, &RspResult{Message: time.Now().Sub(starTime)})
 		case <-ctx.Done():
 			return
 		}
