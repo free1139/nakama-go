@@ -31,19 +31,37 @@ const (
 )
 
 const (
-	EventTypeConnect   = 0
-	EventTypeMessage   = 1
-	EventTypeReconnect = 2
-	EventTypeConnected = 3
-	EventTypePingPong  = 4
+	EventTypeConnecting   = EventType(0)
+	EventTypeMessage      = EventType(1)
+	EventTypeReconnecting = EventType(2)
+	EventTypeConnected    = EventType(3)
+	EventTypePingPong     = EventType(4)
 )
+
+type EventType int
+
+func (e EventType) String() string {
+	switch e {
+	case EventTypeConnecting:
+		return "Connecting"
+	case EventTypeMessage:
+		return "Message"
+	case EventTypeReconnecting:
+		return "Reconnecting"
+	case EventTypeConnected:
+		return "Connected"
+	case EventTypePingPong:
+		return "PingPong"
+	}
+	return "Unknow"
+}
 
 type RspResult struct {
 	Decoded *rtapi.Envelope // try parse, maybe nil
 	Message any             // origin data
 }
 
-type EventHandler func(event int, data *RspResult)
+type EventHandler func(event EventType, data *RspResult)
 
 // Socket defines the Go struct with corresponding methods.
 type Socket interface {
@@ -131,7 +149,7 @@ func (socket *DefaultSocket) GenerateCID() string {
 
 // Connect establishes the WebSocket connection with optional timeouts.
 func (socket *DefaultSocket) Connect() error {
-	socket.eventHandle(EventTypeConnect, nil)
+	socket.eventHandle(EventTypeConnecting, nil)
 	if err := socket.adapter.Connect(); err != nil {
 		return errors.As(err)
 	}
@@ -162,7 +180,7 @@ func (socket *DefaultSocket) GetHeartbeatTimeoutMs() int {
 
 func (socket *DefaultSocket) reconnect(tryTimes int) error {
 	if socket.eventHandle != nil {
-		socket.eventHandle(EventTypeReconnect, nil)
+		socket.eventHandle(EventTypeReconnecting, nil)
 	}
 	for i := tryTimes; i > 0; i-- {
 		if socket.userClosed.Load() {
