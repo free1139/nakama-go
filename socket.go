@@ -35,11 +35,12 @@ const (
 	EventTypeMessage   = 1
 	EventTypeReconnect = 2
 	EventTypeConnected = 3
+	EventTypePingPong  = 4
 )
 
 type RspResult struct {
 	Decoded *rtapi.Envelope // try parse, maybe nil
-	Message []byte          // origin data
+	Message any             // origin data
 }
 
 type EventHandler func(event int, data *RspResult)
@@ -80,6 +81,7 @@ type DefaultSocket struct {
 	cIds    sync.Map // string:chan any
 	nextCid int
 
+	pingUsed      time.Duration
 	userClosed    atomic.Bool
 	joinChatStack sync.Map
 }
@@ -790,16 +792,14 @@ func (socket *DefaultSocket) pingPong(ctx context.Context) {
 	for {
 		select {
 		case <-ticker.C:
+			starTime := time.Now()
 			result := socket.Send(pingReq, &socket.heartbeatTimeoutMs)
 			if err, ok := result.(error); ok {
-				log.Println("after pingpong socket is nil:", socket.adapter.socket == nil)
 				log.Println("Failed to send ping:", err)
-				if socket.adapter.IsOpen() {
-					socket.OnHeartbeatTimeout()
-					socket.adapter.Close()
-				}
-				return
+				continue
 			}
+			socket.pingUsed = time.Now().Sub(starTime)
+			socket.eventHandle(EventTypePingPong, &RspResult{Message: socket.pingUsed})
 		case <-ctx.Done():
 			return
 		}
