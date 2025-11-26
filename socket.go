@@ -264,8 +264,6 @@ func decodeReceivedData(msg map[string]interface{}, field string) {
 
 // HandleMessage processes incoming WebSocket messages.
 func (socket *DefaultSocket) handleMessage(mType int, message []byte) error {
-	//log.Debugf("message_type:%d, message:%s", mType, string(message))
-
 	result := &RspResult{Message: message}
 	// try find the request cid
 	decoded := &rtapi.Envelope{}
@@ -283,32 +281,23 @@ func (socket *DefaultSocket) handleMessage(mType int, message []byte) error {
 	//decodeReceivedData(decoded, "party_data")
 
 	cid := decoded.Cid
-	if len(cid) > 0 {
-		rsp, ok := socket.cIds.Load(cid)
+	rsp, ok := socket.cIds.Load(cid)
+	if ok {
+		err, ok := decoded.GetMessage().(*rtapi.Envelope_Error)
 		if ok {
-			err, ok := decoded.GetMessage().(*rtapi.Envelope_Error)
-			if ok {
-				rsp.(chan any) <- errors.New(err.Error.Message).As(err.Error)
-			} else {
-				rsp.(chan any) <- result
-			}
-
-			return nil
+			rsp.(chan any) <- errors.New(err.Error.Message).As(err.Error)
+		} else {
+			rsp.(chan any) <- result
 		}
-	}
 
-	// deal the kick channel event and more.
-	if event, ok := decoded.GetMessage().(*rtapi.Envelope_ChannelMessage); ok {
-		// {"channel_message":{"channel_id":"3.4f634582-8cd0-4fd8-a71c-3e093ae30cf2..", "message_id":"1bdac70c-9d0e-4c6b-ad1d-bd969f95e1bf", "code":6, "sender_id":"f5996e0c-37da-421f-a7e6-df78eb4c79ad", "username":"z1", "content":"{}", "create_time":"2025-10-24T09:00:46.033690893Z", "update_time":"2025-10-24T09:00:46.033690893Z", "persistent":true, "group_id":"4f634582-8cd0-4fd8-a71c-3e093ae30cf2"}}
-		msg := event.ChannelMessage
-		if msg.Code != nil && msg.Code.Value == ChannelMessageTypeGroupKick {
-			socket.joinChatStack.Delete(msg.ChannelId)
-		}
+		return nil
 	}
 
 	// unknow message, notify to caller
 	if socket.eventHandle != nil {
 		socket.eventHandle(EventTypeMessage, result)
+	} else {
+		log.Debug("uncatch result", result)
 	}
 	return nil
 
