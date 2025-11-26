@@ -149,13 +149,18 @@ func (socket *DefaultSocket) GenerateCID() string {
 
 // Connect establishes the WebSocket connection with optional timeouts.
 func (socket *DefaultSocket) Connect() error {
-	socket.eventHandle(EventTypeConnecting, nil)
+	if socket.eventHandle != nil {
+		go socket.eventHandle(EventTypeConnecting, nil)
+	}
+
 	if err := socket.adapter.Connect(); err != nil {
 		return errors.As(err)
 	}
 	go socket.pingPong(context.TODO())
 
-	socket.eventHandle(EventTypeConnected, nil)
+	if socket.eventHandle != nil {
+		go socket.eventHandle(EventTypeConnected, nil)
+	}
 	return nil
 
 }
@@ -180,7 +185,7 @@ func (socket *DefaultSocket) GetHeartbeatTimeoutMs() int {
 
 func (socket *DefaultSocket) reconnect(tryTimes int) error {
 	if socket.eventHandle != nil {
-		socket.eventHandle(EventTypeReconnecting, nil)
+		go socket.eventHandle(EventTypeReconnecting, nil)
 	}
 	for i := tryTimes; i > 0; i-- {
 		if socket.userClosed.Load() {
@@ -258,7 +263,7 @@ func (socket *DefaultSocket) handleMessage(mType int, message []byte) error {
 	decoded := &rtapi.Envelope{}
 	if err := protojson.Unmarshal(message, decoded); err != nil {
 		if socket.eventHandle != nil {
-			socket.eventHandle(EventTypeMessage, result)
+			go socket.eventHandle(EventTypeMessage, result)
 			return nil
 		}
 		return errors.As(err)
@@ -284,7 +289,7 @@ func (socket *DefaultSocket) handleMessage(mType int, message []byte) error {
 
 	// unknow message, notify to caller
 	if socket.eventHandle != nil {
-		socket.eventHandle(EventTypeMessage, result)
+		go socket.eventHandle(EventTypeMessage, result)
 	} else {
 		log.Debug("uncatch result", result)
 	}
@@ -790,7 +795,9 @@ func (socket *DefaultSocket) pingPong(ctx context.Context) {
 				log.Println("Failed to send ping:", err)
 				continue
 			}
-			socket.eventHandle(EventTypePingPong, &RspResult{Message: time.Now().Sub(starTime)})
+			if socket.eventHandle != nil {
+				go socket.eventHandle(EventTypePingPong, &RspResult{Message: time.Now().Sub(starTime)})
+			}
 		case <-ctx.Done():
 			return
 		}
