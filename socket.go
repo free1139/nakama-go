@@ -101,8 +101,7 @@ type DefaultSocket struct {
 	cIds    sync.Map // string:chan any
 	nextCid int
 
-	userClosed    atomic.Bool
-	joinChatStack sync.Map
+	userClosed atomic.Bool
 }
 
 // NewDefaultSocket creates an instance of DefaultSocket.
@@ -197,20 +196,10 @@ func (socket *DefaultSocket) reconnect(tryTimes int) error {
 			continue
 		}
 
-		// restore the chats
-		socket.joinChatStack.Range(func(k, v any) bool {
-			log.Debugf("reconnect talk, key:%+v", k)
-			originJoin := v.(*rtapi.ChannelJoin)
-			rejoinChannel, err := socket.joinChat(originJoin)
-			if err != nil {
-				log.Warn(errors.As(err))
-				return true // continue range
-			}
-			if rejoinChannel.Id != k.(string) {
-				log.Error(errors.New("Auto reconnect the channel not match").As(k, rejoinChannel.Id))
-			}
-			return true // continue range
-		})
+		if socket.eventHandle != nil {
+			go socket.eventHandle(EventTypeConnected, nil)
+		}
+
 		return nil
 	}
 	return errors.New("reconnection failed")
@@ -425,8 +414,6 @@ func (socket *DefaultSocket) JoinChat(target string, chatType int32, persistence
 	if err != nil {
 		return nil, errors.As(err)
 	}
-	// stash the the chat, and restore when socket reconnected.
-	socket.joinChatStack.Store(channel.Id, targetChannel)
 	return channel, nil
 }
 
@@ -491,9 +478,6 @@ func (socket *DefaultSocket) LeaveChat(channelID string) error {
 		return errors.As(err)
 	}
 
-	// TODO: decode?
-
-	socket.joinChatStack.Delete(channelID)
 	return nil
 }
 
