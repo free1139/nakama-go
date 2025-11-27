@@ -60,7 +60,7 @@ func (e EventType) String() string {
 
 type RspResult struct {
 	Decoded *rtapi.Envelope // try parse, maybe nil
-	Message any             // origin data
+	Data    any             // origin data
 }
 
 type EventHandler func(event EventType, data *RspResult)
@@ -258,7 +258,7 @@ func decodeReceivedData(msg map[string]interface{}, field string) {
 
 // HandleMessage processes incoming WebSocket messages.
 func (socket *DefaultSocket) handleMessage(mType int, message []byte) error {
-	result := &RspResult{Message: message}
+	result := &RspResult{Data: message}
 	// try find the request cid
 	decoded := &rtapi.Envelope{}
 	if err := protojson.Unmarshal(message, decoded); err != nil {
@@ -796,7 +796,7 @@ func (socket *DefaultSocket) pingPong(ctx context.Context) {
 				continue
 			}
 			if socket.eventHandle != nil {
-				go socket.eventHandle(EventTypePingPong, &RspResult{Message: time.Now().Sub(starTime)})
+				go socket.eventHandle(EventTypePingPong, &RspResult{Data: time.Now().Sub(starTime)})
 			}
 		case <-ctx.Done():
 			return
