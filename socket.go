@@ -60,7 +60,7 @@ func (e EventType) String() string {
 
 type RspResult struct {
 	Decoded *rtapi.Envelope // try parse, maybe nil
-	Data    any             // origin data
+	Data    []byte          // origin data
 }
 
 type EventHandler func(event EventType, data *RspResult)
@@ -796,7 +796,7 @@ func (socket *DefaultSocket) pingPong(ctx context.Context) {
 				continue
 			}
 			if socket.eventHandle != nil {
-				go socket.eventHandle(EventTypePingPong, &RspResult{Data: time.Now().Sub(starTime)})
+				go socket.eventHandle(EventTypePingPong, &RspResult{Data: []byte(time.Now().Sub(starTime).String())})
 			}
 		case <-ctx.Done():
 			return
