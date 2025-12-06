@@ -789,6 +789,10 @@ func (socket *DefaultSocket) pingPong(ctx context.Context) {
 	for {
 		select {
 		case <-ticker.C:
+			if socket.userClosed.Load() {
+				// user closed
+				return
+			}
 			starTime := time.Now()
 			result := socket.Send(pingReq, &socket.heartbeatTimeoutMs)
 			if err, ok := result.(error); ok {
