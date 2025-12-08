@@ -33,10 +33,11 @@ const (
 
 const (
 	EventTypeConnecting   = EventType(0)
-	EventTypeMessage      = EventType(1)
-	EventTypeReconnecting = EventType(2)
-	EventTypeConnected    = EventType(3)
-	EventTypePingPong     = EventType(4)
+	EventTypeConnected    = EventType(1)
+	EventTypeMessage      = EventType(2)
+	EventTypeReconnecting = EventType(3)
+	EventTypeReConnected  = EventType(4)
+	EventTypePingPong     = EventType(5)
 	// TODO: need closed?
 )
 
@@ -202,7 +203,7 @@ func (socket *DefaultSocket) reconnect(tryTimes int) error {
 		}
 
 		if socket.eventHandle != nil {
-			go socket.eventHandle(EventTypeConnected, nil)
+			go socket.eventHandle(EventTypeReConnected, nil)
 		}
 
 		return nil
@@ -279,7 +280,8 @@ func (socket *DefaultSocket) handleMessage(mType int, message []byte) error {
 	if ok {
 		err, ok := decoded.GetMessage().(*rtapi.Envelope_Error)
 		if ok {
-			rsp.(chan any) <- errors.New(err.Error.Message).As(err.Error)
+			e := err.Error
+			rsp.(chan any) <- errors.Parse(e.Message).As(e.Code, e.Context)
 		} else {
 			rsp.(chan any) <- result
 		}
@@ -334,7 +336,7 @@ func (socket *DefaultSocket) Send(message *rtapi.Envelope, sendTimeout *int) any
 	select {
 	case <-t.C:
 		return errors.New("timeout")
-	case data := <-rsp:
+	case data := <-rsp: //
 		return data
 	}
 }
