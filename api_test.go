@@ -7,7 +7,7 @@ import (
 )
 
 func setupApi(t *testing.T) Client {
-	client := NewClient("defaultkey", "127.0.0.1", "7350", false, nil, nil)
+	client := NewClient("defaultkey", "127.0.0.1", "7350", false, 0, true)
 
 	return *client
 }
@@ -17,7 +17,7 @@ func TestAuthenticateWithDeviceId(t *testing.T) {
 
 	deviceId := "376C007D-260F-579B-BD75-A3CBBFC2EF99"
 	create := true
-	session, err := client.AuthenticateDevice(deviceId, &create, nil, nil)
+	session, err := client.AuthenticateDevice(deviceId, &create, "", nil)
 
 	assert.NoError(t, err)
 	assert.NotNil(t, session)

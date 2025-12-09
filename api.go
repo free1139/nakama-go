@@ -15,6 +15,8 @@ import (
 
 	"github.com/gwaylib/errors"
 	api "github.com/heroiclabs/nakama-common/api"
+	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
 )
 
 var (
@@ -27,31 +29,18 @@ type NakamaApi struct {
 	TimeoutMs int // need set a validate value
 }
 
-func (napi NakamaApi) SetBasicAuth(req *http.Request, username, passwd *string) {
-	if checkStr(username) {
-		auth := *username + ":"
-		if checkStr(passwd) {
-			auth += *passwd
+func (napi NakamaApi) SetBasicAuth(req *http.Request, username, passwd string) {
+	if checkStr(&username) {
+		auth := username + ":"
+		if checkStr(&passwd) {
+			auth += passwd
 		}
 		encodedAuth := base64.StdEncoding.EncodeToString([]byte(auth))
 		req.Header.Set("Authorization", "Basic "+encodedAuth)
 	}
 }
 
-// Healthcheck is a healthcheck function that load balancers can use to check the service.
-func (napi *NakamaApi) Healthcheck(bearerToken string, options map[string]string) (any, error) {
-	// Define the URL path and query parameters
-	urlPath := "/healthcheck"
-	queryParams := url.Values{}
-
-	// Construct the full URL
-	fullUrl := napi.buildFullUrl(napi.BasePath, urlPath, queryParams)
-
-	// Prepare the HTTP request
-	req, err := http.NewRequest("GET", fullUrl, nil)
-	if err != nil {
-		return nil, err
-	}
+func (napi *NakamaApi) doReq(bearerToken string, req *http.Request, options map[string]string, rsp proto.Message) error {
 	if checkStr(&bearerToken) {
 		req.Header.Set("Authorization", "Bearer "+bearerToken)
 	}
@@ -66,50 +55,59 @@ func (napi *NakamaApi) Healthcheck(bearerToken string, options map[string]string
 
 	// Make the HTTP request
 	client := &http.Client{}
-	responseChan := make(chan *http.Response, 1)
-	errorChan := make(chan error, 1)
 
 	// Run the HTTP request in a goroutine
-	go func() {
-		resp, err := client.Do(req.WithContext(ctx))
-		if err != nil {
-			errorChan <- err
-			return
-		}
-		responseChan <- resp
-	}()
-
-	// Wait for the response or the timeout
-	select {
-	case <-ctx.Done():
-		return nil, errors.New("request timed out")
-	case err := <-errorChan:
-		return nil, err
-	case resp := <-responseChan:
-		defer resp.Body.Close()
-
-		// Handle HTTP response
-		if resp.StatusCode == http.StatusNoContent {
-			return nil, nil
-		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			var result any
-			bodyBytes, err := io.ReadAll(resp.Body)
-			if err != nil {
-				return nil, err
-			}
-			err = json.Unmarshal(bodyBytes, &result)
-			if err != nil {
-				return nil, err
-			}
-			return result, nil
-		} else {
-			return nil, errors.New(resp.Status)
-		}
+	resp, err := client.Do(req.WithContext(ctx))
+	if err != nil {
+		return errors.As(err)
 	}
+	defer resp.Body.Close()
+
+	// Handle HTTP response
+	if resp.StatusCode == http.StatusNoContent {
+		if rsp != nil {
+			return ErrNoContent.As(resp.StatusCode)
+		}
+		return nil
+	} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		bodyBytes, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return errors.As(err, string(bodyBytes))
+		}
+		if rsp == nil {
+			return nil
+		}
+
+		if err := protojson.Unmarshal(bodyBytes, rsp); err != nil {
+			return errors.As(err)
+		}
+		return nil
+	}
+	return errors.New(resp.Status).As(resp.StatusCode)
+}
+
+// Healthcheck is a healthcheck function that load balancers can use to check the service.
+func (napi *NakamaApi) Healthcheck(bearerToken string, options map[string]string) error {
+	// Define the URL path and query parameters
+	urlPath := "/healthcheck"
+	queryParams := url.Values{}
+
+	// Construct the full URL
+	fullUrl := napi.buildFullUrl(napi.BasePath, urlPath, queryParams)
+
+	// Prepare the HTTP request
+	req, err := http.NewRequest("GET", fullUrl, nil)
+	if err != nil {
+		return errors.As(err)
+	}
+	if err := napi.doReq(bearerToken, req, options, nil); err != nil {
+		return errors.As(err)
+	}
+	return nil
 }
 
 // DeleteAccount deletes the current user's account.
-func (napi *NakamaApi) DeleteAccount(bearerToken string, options map[string]string) (any, error) {
+func (napi *NakamaApi) DeleteAccount(bearerToken string, options map[string]string) error {
 	// Define the URL path and query parameters
 	urlPath := "/v2/account"
 	queryParams := url.Values{}
@@ -120,62 +118,12 @@ func (napi *NakamaApi) DeleteAccount(bearerToken string, options map[string]stri
 	// Prepare the HTTP request
 	req, err := http.NewRequest("DELETE", fullUrl, nil)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	if bearerToken != "" {
-		req.Header.Set("Authorization", "Bearer "+bearerToken)
+	if err := napi.doReq(bearerToken, req, options, nil); err != nil {
+		return errors.As(err)
 	}
-	// Apply additional custom headers or options if needed
-	for key, value := range options {
-		req.Header.Set(key, value)
-	}
-
-	// Create a context with a timeout
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(napi.TimeoutMs)*time.Millisecond)
-	defer cancel()
-
-	// Make the HTTP request
-	client := &http.Client{}
-	responseChan := make(chan *http.Response, 1)
-	errorChan := make(chan error, 1)
-
-	// Run the HTTP request in a goroutine
-	go func() {
-		resp, err := client.Do(req.WithContext(ctx))
-		if err != nil {
-			errorChan <- err
-			return
-		}
-		responseChan <- resp
-	}()
-
-	// Wait for the response or the timeout
-	select {
-	case <-ctx.Done():
-		return nil, errors.New("request timed out")
-	case err := <-errorChan:
-		return nil, err
-	case resp := <-responseChan:
-		defer resp.Body.Close()
-
-		// Handle HTTP response
-		if resp.StatusCode == http.StatusNoContent {
-			return nil, nil
-		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			var result any
-			bodyBytes, err := io.ReadAll(resp.Body)
-			if err != nil {
-				return nil, err
-			}
-			err = json.Unmarshal(bodyBytes, &result)
-			if err != nil {
-				return nil, err
-			}
-			return result, nil
-		} else {
-			return nil, errors.New(resp.Status)
-		}
-	}
+	return nil
 }
 
 // GetAccount fetches the current user's account.
@@ -192,67 +140,18 @@ func (napi *NakamaApi) GetAccount(bearerToken string, options map[string]string)
 	if err != nil {
 		return nil, err
 	}
-	if bearerToken != "" {
-		req.Header.Set("Authorization", "Bearer "+bearerToken)
+	result := &api.Account{}
+	if err := napi.doReq(bearerToken, req, options, result); err != nil {
+		return nil, errors.As(err)
 	}
-	// Apply additional custom headers or options if needed
-	for key, value := range options {
-		req.Header.Set(key, value)
-	}
-
-	// Create a context with a timeout
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(napi.TimeoutMs)*time.Millisecond)
-	defer cancel()
-
-	// Make the HTTP request
-	client := &http.Client{}
-	responseChan := make(chan *http.Response, 1)
-	errorChan := make(chan error, 1)
-
-	// Run the HTTP request in a goroutine
-	go func() {
-		resp, err := client.Do(req.WithContext(ctx))
-		if err != nil {
-			errorChan <- err
-			return
-		}
-		responseChan <- resp
-	}()
-
-	// Wait for the response or the timeout
-	select {
-	case <-ctx.Done():
-		return nil, errors.New("request timed out")
-	case err := <-errorChan:
-		return nil, err
-	case resp := <-responseChan:
-		defer resp.Body.Close()
-
-		// Handle HTTP response
-		if resp.StatusCode == http.StatusNoContent {
-			return nil, nil
-		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			var result api.Account
-			bodyBytes, err := io.ReadAll(resp.Body)
-			if err != nil {
-				return nil, err
-			}
-			err = json.Unmarshal(bodyBytes, &result)
-			if err != nil {
-				return nil, err
-			}
-			return &result, nil
-		} else {
-			return nil, errors.New(resp.Status)
-		}
-	}
+	return result, nil
 }
 
 // UpdateAccount updates fields in the current user's account.
-func (napi *NakamaApi) UpdateAccount(bearerToken *string, body *api.UpdateAccountRequest, options map[string]string) (any, error) {
+func (napi *NakamaApi) UpdateAccount(bearerToken string, body *api.UpdateAccountRequest, options map[string]string) error {
 	// Check if the body is nil
 	if body == nil {
-		return nil, errors.New("'body' is a required parameter but is null or undefined")
+		return errors.New("'body' is a required parameter but is null or undefined")
 	}
 
 	// Define the URL path and query parameters
@@ -262,7 +161,7 @@ func (napi *NakamaApi) UpdateAccount(bearerToken *string, body *api.UpdateAccoun
 	// Convert the body to JSON
 	bodyJson, err := json.Marshal(body)
 	if err != nil {
-		return nil, err
+		return errors.As(err)
 	}
 
 	// Construct the full URL
@@ -271,76 +170,26 @@ func (napi *NakamaApi) UpdateAccount(bearerToken *string, body *api.UpdateAccoun
 	// Prepare the HTTP request
 	req, err := http.NewRequest("PUT", fullUrl, bytes.NewBuffer(bodyJson))
 	if err != nil {
-		return nil, err
+		return errors.As(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	if checkStr(bearerToken) {
-		req.Header.Set("Authorization", "Bearer "+*bearerToken)
+	if err := napi.doReq(bearerToken, req, options, nil); err != nil {
+		return errors.As(err)
 	}
 
-	// Apply additional custom headers or options if needed
-	for key, value := range options {
-		req.Header.Set(key, value)
-	}
-
-	// Create a context with a timeout
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(napi.TimeoutMs)*time.Millisecond)
-	defer cancel()
-
-	// Make the HTTP request
-	client := &http.Client{}
-	responseChan := make(chan *http.Response, 1)
-	errorChan := make(chan error, 1)
-
-	// Run the HTTP request in a goroutine
-	go func() {
-		resp, err := client.Do(req.WithContext(ctx))
-		if err != nil {
-			errorChan <- err
-			return
-		}
-		responseChan <- resp
-	}()
-
-	// Wait for the response or the timeout
-	select {
-	case <-ctx.Done():
-		return nil, errors.New("request timed out")
-	case err := <-errorChan:
-		return nil, err
-	case resp := <-responseChan:
-		defer resp.Body.Close()
-
-		// Handle HTTP response
-		if resp.StatusCode == http.StatusNoContent {
-			return nil, nil
-		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			var result any
-			bodyBytes, err := io.ReadAll(resp.Body)
-			if err != nil {
-				return nil, err
-			}
-			err = json.Unmarshal(bodyBytes, &result)
-			if err != nil {
-				return nil, err
-			}
-			return result, nil
-		} else {
-			return nil, errors.New(resp.Status)
-		}
-	}
+	return nil
 }
 
 // AuthenticateApple authenticates a user with an Apple ID against the server.
-func (napi *NakamaApi) AuthenticateApple(basicAuthUsername *string, basicAuthPassword *string, account *api.AccountApple, create *bool, username *string, options map[string]string) (*api.Session, error) {
+func (napi *NakamaApi) AuthenticateApple(basicAuthUsername string, basicAuthPassword string, account *api.AccountApple, create *bool, username string, options map[string]string) (*api.Session, error) {
 	// Define the URL path and query parameters
 	urlPath := "/v2/account/authenticate/apple"
 	queryParams := url.Values{}
 	if create != nil {
 		queryParams.Set("create", fmt.Sprintf("%v", *create))
 	}
-	if username != nil {
-		queryParams.Set("username", *username)
+	if username != "" {
+		queryParams.Set("username", username)
 	}
 
 	// Convert the account to JSON
@@ -362,63 +211,18 @@ func (napi *NakamaApi) AuthenticateApple(basicAuthUsername *string, basicAuthPas
 	// Set Basic Authorization header
 	napi.SetBasicAuth(req, basicAuthUsername, basicAuthPassword)
 
-	// Apply additional custom headers or options if needed
-	for key, value := range options {
-		req.Header.Set(key, value)
+	var result = &api.Session{}
+	if err := napi.doReq("", req, options, result); err != nil {
+		return nil, errors.As(err)
 	}
 
-	// Create a context with a timeout
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(napi.TimeoutMs)*time.Millisecond)
-	defer cancel()
-
-	// Make the HTTP request
-	client := &http.Client{}
-	responseChan := make(chan *http.Response, 1)
-	errorChan := make(chan error, 1)
-
-	// Run the HTTP request in a goroutine
-	go func() {
-		resp, err := client.Do(req.WithContext(ctx))
-		if err != nil {
-			errorChan <- err
-			return
-		}
-		responseChan <- resp
-	}()
-
-	// Wait for the response or the timeout
-	select {
-	case <-ctx.Done():
-		return nil, errors.New("request timed out")
-	case err := <-errorChan:
-		return nil, err
-	case resp := <-responseChan:
-		defer resp.Body.Close()
-
-		// Handle HTTP response
-		if resp.StatusCode == http.StatusNoContent {
-			return nil, nil
-		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			var result api.Session
-			bodyBytes, err := io.ReadAll(resp.Body)
-			if err != nil {
-				return nil, err
-			}
-			err = json.Unmarshal(bodyBytes, &result)
-			if err != nil {
-				return nil, err
-			}
-			return &result, nil
-		} else {
-			return nil, errors.New(resp.Status)
-		}
-	}
+	return result, nil
 }
 
 // AuthenticateCustom authenticates a user with a custom ID against the server.
 func (napi *NakamaApi) AuthenticateCustom(
-	basicAuthUsername *string,
-	basicAuthPassword *string,
+	basicAuthUsername string,
+	basicAuthPassword string,
 	account *api.AccountCustom,
 	create *bool,
 	username *string,
@@ -452,67 +256,21 @@ func (napi *NakamaApi) AuthenticateCustom(
 
 	// Set Basic Authorization header
 	napi.SetBasicAuth(req, basicAuthUsername, basicAuthPassword)
-
-	// Apply additional custom headers or options if needed
-	for key, value := range options {
-		req.Header.Set(key, value)
+	var result api.Session
+	if err := napi.doReq("", req, options, &result); err != nil {
+		return nil, errors.As(err)
 	}
 
-	// Create a context with a timeout
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(napi.TimeoutMs)*time.Millisecond)
-	defer cancel()
-
-	// Make the HTTP request
-	client := &http.Client{}
-	responseChan := make(chan *http.Response, 1)
-	errorChan := make(chan error, 1)
-
-	// Run the HTTP request in a goroutine
-	go func() {
-		resp, err := client.Do(req.WithContext(ctx))
-		if err != nil {
-			errorChan <- err
-			return
-		}
-		responseChan <- resp
-	}()
-
-	// Wait for the response or the timeout
-	select {
-	case <-ctx.Done():
-		return nil, errors.New("request timed out")
-	case err := <-errorChan:
-		return nil, err
-	case resp := <-responseChan:
-		defer resp.Body.Close()
-
-		// Handle HTTP response
-		if resp.StatusCode == http.StatusNoContent {
-			return nil, nil
-		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			var result api.Session
-			bodyBytes, err := io.ReadAll(resp.Body)
-			if err != nil {
-				return nil, err
-			}
-			err = json.Unmarshal(bodyBytes, &result)
-			if err != nil {
-				return nil, err
-			}
-			return &result, nil
-		} else {
-			return nil, errors.New(resp.Status)
-		}
-	}
+	return &result, nil
 }
 
 // AuthenticateDevice authenticates a user with a device ID against the server.
 func (napi *NakamaApi) AuthenticateDevice(
-	basicAuthUsername *string,
-	basicAuthPassword *string,
+	basicAuthUsername string,
+	basicAuthPassword string,
 	account *api.AccountDevice,
 	create *bool,
-	username *string,
+	username string,
 	options map[string]string,
 ) (*api.Session, error) {
 	// Define the URL path and query parameters
@@ -521,8 +279,8 @@ func (napi *NakamaApi) AuthenticateDevice(
 	if create != nil {
 		queryParams.Set("create", fmt.Sprintf("%v", *create))
 	}
-	if username != nil {
-		queryParams.Set("username", *username)
+	if username != "" {
+		queryParams.Set("username", username)
 	}
 
 	// Convert the account to JSON
@@ -544,63 +302,18 @@ func (napi *NakamaApi) AuthenticateDevice(
 	// Set Basic Authorization header
 	napi.SetBasicAuth(req, basicAuthUsername, basicAuthPassword)
 
-	// Apply additional custom headers or options if needed
-	for key, value := range options {
-		req.Header.Set(key, value)
+	var result api.Session
+	if err := napi.doReq("", req, options, &result); err != nil {
+		return nil, errors.As(err)
 	}
 
-	// Create a context with a timeout
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(napi.TimeoutMs)*time.Millisecond)
-	defer cancel()
-
-	// Make the HTTP request
-	client := &http.Client{}
-	responseChan := make(chan *http.Response, 1)
-	errorChan := make(chan error, 1)
-
-	// Run the HTTP request in a goroutine
-	go func() {
-		resp, err := client.Do(req.WithContext(ctx))
-		if err != nil {
-			errorChan <- err
-			return
-		}
-		responseChan <- resp
-	}()
-
-	// Wait for the response or the timeout
-	select {
-	case <-ctx.Done():
-		return nil, errors.New("request timed out")
-	case err := <-errorChan:
-		return nil, err
-	case resp := <-responseChan:
-		defer resp.Body.Close()
-
-		// Handle HTTP response
-		if resp.StatusCode == http.StatusNoContent {
-			return nil, nil
-		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			var result api.Session
-			bodyBytes, err := io.ReadAll(resp.Body)
-			if err != nil {
-				return nil, err
-			}
-			err = json.Unmarshal(bodyBytes, &result)
-			if err != nil {
-				return nil, err
-			}
-			return &result, nil
-		} else {
-			return nil, errors.New(resp.Status)
-		}
-	}
+	return &result, nil
 }
 
 // AuthenticateEmail authenticates a user with an email and password against the server.
 func (napi *NakamaApi) AuthenticateEmail(
-	basicAuthUsername *string,
-	basicAuthPassword *string,
+	basicAuthUsername string,
+	basicAuthPassword string,
 	account *api.AccountEmail,
 	create *bool,
 	username *string,
@@ -635,65 +348,21 @@ func (napi *NakamaApi) AuthenticateEmail(
 	// Set Basic Authorization header
 	napi.SetBasicAuth(req, basicAuthUsername, basicAuthPassword)
 
-	// Apply additional custom headers or options if needed
-	for key, value := range options {
-		req.Header.Set(key, value)
+	var result = &api.Session{}
+	if err := napi.doReq("", req, options, result); err != nil {
+		return nil, errors.As(err)
 	}
 
-	// Create a context with a timeout
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(napi.TimeoutMs)*time.Millisecond)
-	defer cancel()
-
-	// Make the HTTP request
-	client := &http.Client{}
-	responseChan := make(chan *http.Response, 1)
-	errorChan := make(chan error, 1)
-
-	// Run the HTTP request in a goroutine
-	go func() {
-		resp, err := client.Do(req.WithContext(ctx))
-		if err != nil {
-			errorChan <- err
-			return
-		}
-		responseChan <- resp
-	}()
-
-	// Wait for the response or the timeout
-	select {
-	case <-ctx.Done():
-		return nil, errors.New("request timed out")
-	case err := <-errorChan:
-		return nil, err
-	case resp := <-responseChan:
-		defer resp.Body.Close()
-
-		// Handle HTTP response
-		if resp.StatusCode == http.StatusNoContent {
-			return nil, errors.New("StatusNoContent")
-		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			bodyBytes, err := io.ReadAll(resp.Body)
-			if err != nil {
-				return nil, err
-			}
-			var result = &api.Session{}
-			if err := json.Unmarshal(bodyBytes, result); err != nil {
-				return nil, err
-			}
-			return result, nil
-		} else {
-			return nil, errors.New(resp.Status)
-		}
-	}
+	return result, nil
 }
 
 // AuthenticateFacebook authenticates a user with a Facebook OAuth token against the server.
 func (napi *NakamaApi) AuthenticateFacebook(
-	basicAuthUsername *string,
-	basicAuthPassword *string,
+	basicAuthUsername string,
+	basicAuthPassword string,
 	account *api.AccountFacebook,
 	create *bool,
-	username *string,
+	username string,
 	sync *bool,
 	options map[string]string,
 ) (*api.Session, error) {
@@ -701,13 +370,13 @@ func (napi *NakamaApi) AuthenticateFacebook(
 	urlPath := "/v2/account/authenticate/facebook"
 	queryParams := url.Values{}
 	if create != nil {
-		queryParams.Set("create", fmt.Sprintf("%v", *create))
+		queryParams.Set("create", fmt.Sprintf("%v", create))
 	}
-	if username != nil {
-		queryParams.Set("username", *username)
+	if username != "" {
+		queryParams.Set("username", username)
 	}
 	if sync != nil {
-		queryParams.Set("sync", fmt.Sprintf("%v", *sync))
+		queryParams.Set("sync", fmt.Sprintf("%v", sync))
 	}
 
 	// Convert the account to JSON
@@ -728,67 +397,21 @@ func (napi *NakamaApi) AuthenticateFacebook(
 
 	// Set Basic Authorization header
 	napi.SetBasicAuth(req, basicAuthUsername, basicAuthPassword)
-
-	// Apply additional custom headers or options if needed
-	for key, value := range options {
-		req.Header.Set(key, value)
+	var result api.Session
+	if err := napi.doReq("", req, options, &result); err != nil {
+		return nil, errors.As(err)
 	}
 
-	// Create a context with a timeout
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(napi.TimeoutMs)*time.Millisecond)
-	defer cancel()
-
-	// Make the HTTP request
-	client := &http.Client{}
-	responseChan := make(chan *http.Response, 1)
-	errorChan := make(chan error, 1)
-
-	// Run the HTTP request in a goroutine
-	go func() {
-		resp, err := client.Do(req.WithContext(ctx))
-		if err != nil {
-			errorChan <- err
-			return
-		}
-		responseChan <- resp
-	}()
-
-	// Wait for the response or the timeout
-	select {
-	case <-ctx.Done():
-		return nil, errors.New("request timed out")
-	case err := <-errorChan:
-		return nil, err
-	case resp := <-responseChan:
-		defer resp.Body.Close()
-
-		// Handle HTTP response
-		if resp.StatusCode == http.StatusNoContent {
-			return nil, nil
-		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			var result api.Session
-			bodyBytes, err := io.ReadAll(resp.Body)
-			if err != nil {
-				return nil, err
-			}
-			err = json.Unmarshal(bodyBytes, &result)
-			if err != nil {
-				return nil, err
-			}
-			return &result, nil
-		} else {
-			return nil, errors.New(resp.Status)
-		}
-	}
+	return &result, nil
 }
 
 // AuthenticateFacebookInstantGame authenticates a user with a Facebook Instant Game token against the server.
 func (napi *NakamaApi) AuthenticateFacebookInstantGame(
-	basicAuthUsername *string,
-	basicAuthPassword *string,
+	basicAuthUsername string,
+	basicAuthPassword string,
 	account *api.AccountFacebookInstantGame,
 	create *bool,
-	username *string,
+	username string,
 	options map[string]string,
 ) (*api.Session, error) {
 	// Define the URL path and query parameters
@@ -797,8 +420,8 @@ func (napi *NakamaApi) AuthenticateFacebookInstantGame(
 	if create != nil {
 		queryParams.Set("create", fmt.Sprintf("%v", *create))
 	}
-	if username != nil {
-		queryParams.Set("username", *username)
+	if username != "" {
+		queryParams.Set("username", username)
 	}
 
 	// Convert the account to JSON
@@ -820,66 +443,21 @@ func (napi *NakamaApi) AuthenticateFacebookInstantGame(
 	// Set Basic Authorization header
 	napi.SetBasicAuth(req, basicAuthUsername, basicAuthPassword)
 
-	// Apply additional custom headers or options if needed
-	for key, value := range options {
-		req.Header.Set(key, value)
+	var result api.Session
+	if err := napi.doReq("", req, options, &result); err != nil {
+		return nil, errors.As(err)
 	}
 
-	// Create a context with a timeout
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(napi.TimeoutMs)*time.Millisecond)
-	defer cancel()
-
-	// Make the HTTP request
-	client := &http.Client{}
-	responseChan := make(chan *http.Response, 1)
-	errorChan := make(chan error, 1)
-
-	// Run the HTTP request in a goroutine
-	go func() {
-		resp, err := client.Do(req.WithContext(ctx))
-		if err != nil {
-			errorChan <- err
-			return
-		}
-		responseChan <- resp
-	}()
-
-	// Wait for the response or the timeout
-	select {
-	case <-ctx.Done():
-		return nil, errors.New("request timed out")
-	case err := <-errorChan:
-		return nil, err
-	case resp := <-responseChan:
-		defer resp.Body.Close()
-
-		// Handle HTTP response
-		if resp.StatusCode == http.StatusNoContent {
-			return nil, nil
-		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			var result api.Session
-			bodyBytes, err := io.ReadAll(resp.Body)
-			if err != nil {
-				return nil, err
-			}
-			err = json.Unmarshal(bodyBytes, &result)
-			if err != nil {
-				return nil, err
-			}
-			return &result, nil
-		} else {
-			return nil, errors.New(resp.Status)
-		}
-	}
+	return &result, nil
 }
 
 // AuthenticateGameCenter authenticates a user with Apple's GameCenter against the server.
 func (napi *NakamaApi) AuthenticateGameCenter(
-	basicAuthUsername *string,
-	basicAuthPassword *string,
+	basicAuthUsername string,
+	basicAuthPassword string,
 	account *api.AccountGameCenter,
 	create *bool,
-	username *string,
+	username string,
 	options map[string]string,
 ) (*api.Session, error) {
 	// Define the URL path and query parameters
@@ -888,8 +466,8 @@ func (napi *NakamaApi) AuthenticateGameCenter(
 	if create != nil {
 		queryParams.Set("create", fmt.Sprintf("%v", *create))
 	}
-	if username != nil {
-		queryParams.Set("username", *username)
+	if username != "" {
+		queryParams.Set("username", username)
 	}
 
 	// Convert the account to JSON
@@ -911,76 +489,29 @@ func (napi *NakamaApi) AuthenticateGameCenter(
 	// Set Basic Authorization header
 	napi.SetBasicAuth(req, basicAuthUsername, basicAuthPassword)
 
-	// Apply additional custom headers or options if needed
-	for key, value := range options {
-		req.Header.Set(key, value)
+	var result api.Session
+	if err := napi.doReq("", req, options, &result); err != nil {
+		return nil, errors.As(err)
 	}
 
-	// Create a context with a timeout
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(napi.TimeoutMs)*time.Millisecond)
-	defer cancel()
-
-	// Make the HTTP request
-	client := &http.Client{}
-	responseChan := make(chan *http.Response, 1)
-	errorChan := make(chan error, 1)
-
-	// Run the HTTP request in a goroutine
-	go func() {
-		resp, err := client.Do(req.WithContext(ctx))
-		if err != nil {
-			errorChan <- err
-			return
-		}
-		responseChan <- resp
-	}()
-
-	// Wait for the response or the timeout
-	select {
-	case <-ctx.Done():
-		return nil, errors.New("request timed out")
-	case err := <-errorChan:
-		return nil, err
-	case resp := <-responseChan:
-		defer resp.Body.Close()
-
-		// Handle HTTP response
-		if resp.StatusCode == http.StatusNoContent {
-			return nil, nil
-		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			var result api.Session
-			bodyBytes, err := io.ReadAll(resp.Body)
-			if err != nil {
-				return nil, err
-			}
-			err = json.Unmarshal(bodyBytes, &result)
-			if err != nil {
-				return nil, err
-			}
-			return &result, nil
-		} else {
-			return nil, errors.New(resp.Status)
-		}
-	}
+	return &result, nil
 }
 
 // AuthenticateGoogle authenticates a user with Google against the server.
 func (napi *NakamaApi) AuthenticateGoogle(
-	basicAuthUsername *string,
-	basicAuthPassword *string,
+	basicAuthUsername string,
+	basicAuthPassword string,
 	account *api.AccountGoogle,
 	create *bool,
-	username *string,
+	username string,
 	options map[string]string,
 ) (*api.Session, error) {
 	// Define the URL path and query parameters
 	urlPath := "/v2/account/authenticate/google"
 	queryParams := url.Values{}
-	if create != nil {
-		queryParams.Set("create", fmt.Sprintf("%v", *create))
-	}
-	if username != nil {
-		queryParams.Set("username", *username)
+	queryParams.Set("create", fmt.Sprintf("%v", create))
+	if username != "" {
+		queryParams.Set("username", username)
 	}
 
 	// Convert the account to JSON
@@ -1002,66 +533,22 @@ func (napi *NakamaApi) AuthenticateGoogle(
 	// Set Basic Authorization header
 	napi.SetBasicAuth(req, basicAuthUsername, basicAuthPassword)
 
-	// Apply additional custom headers or options if needed
-	for key, value := range options {
-		req.Header.Set(key, value)
+	var result api.Session
+	if err := napi.doReq("", req, options, &result); err != nil {
+		return nil, errors.As(err)
 	}
 
-	// Create a context with a timeout
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(napi.TimeoutMs)*time.Millisecond)
-	defer cancel()
+	return &result, nil
 
-	// Make the HTTP request
-	client := &http.Client{}
-	responseChan := make(chan *http.Response, 1)
-	errorChan := make(chan error, 1)
-
-	// Run the HTTP request in a goroutine
-	go func() {
-		resp, err := client.Do(req.WithContext(ctx))
-		if err != nil {
-			errorChan <- err
-			return
-		}
-		responseChan <- resp
-	}()
-
-	// Wait for the response or the timeout
-	select {
-	case <-ctx.Done():
-		return nil, errors.New("request timed out")
-	case err := <-errorChan:
-		return nil, err
-	case resp := <-responseChan:
-		defer resp.Body.Close()
-
-		// Handle HTTP response
-		if resp.StatusCode == http.StatusNoContent {
-			return nil, nil
-		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			var result api.Session
-			bodyBytes, err := io.ReadAll(resp.Body)
-			if err != nil {
-				return nil, err
-			}
-			err = json.Unmarshal(bodyBytes, &result)
-			if err != nil {
-				return nil, err
-			}
-			return &result, nil
-		} else {
-			return nil, errors.New(resp.Status)
-		}
-	}
 }
 
 // AuthenticateSteam authenticates a user with Steam against the server.
 func (napi *NakamaApi) AuthenticateSteam(
-	basicAuthUsername *string,
-	basicAuthPassword *string,
+	basicAuthUsername string,
+	basicAuthPassword string,
 	account *api.AccountSteam,
 	create *bool,
-	username *string,
+	username string,
 	sync *bool,
 	options map[string]string,
 ) (*api.Session, error) {
@@ -1069,19 +556,19 @@ func (napi *NakamaApi) AuthenticateSteam(
 	urlPath := "/v2/account/authenticate/steam"
 	queryParams := url.Values{}
 	if create != nil {
-		queryParams.Set("create", fmt.Sprintf("%v", *create))
+		queryParams.Set("create", fmt.Sprintf("%v", create))
 	}
-	if username != nil {
-		queryParams.Set("username", *username)
+	if username != "" {
+		queryParams.Set("username", username)
 	}
 	if sync != nil {
-		queryParams.Set("sync", fmt.Sprintf("%v", *sync))
+		queryParams.Set("sync", fmt.Sprintf("%v", sync))
 	}
 
 	// Convert the account to JSON
 	bodyJson, err := json.Marshal(account)
 	if err != nil {
-		return nil, err
+		return nil, errors.As(err)
 	}
 
 	// Construct the full URL
@@ -1090,72 +577,27 @@ func (napi *NakamaApi) AuthenticateSteam(
 	// Prepare the HTTP request
 	req, err := http.NewRequest("POST", fullUrl, bytes.NewBuffer(bodyJson))
 	if err != nil {
-		return nil, err
+		return nil, errors.As(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 
 	// Set Basic Authorization header
 	napi.SetBasicAuth(req, basicAuthUsername, basicAuthPassword)
 
-	// Apply additional custom headers or options if needed
-	for key, value := range options {
-		req.Header.Set(key, value)
+	var result api.Session
+	if err := napi.doReq("", req, options, &result); err != nil {
+		return nil, errors.As(err)
 	}
 
-	// Create a context with a timeout
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(napi.TimeoutMs)*time.Millisecond)
-	defer cancel()
-
-	// Make the HTTP request
-	client := &http.Client{}
-	responseChan := make(chan *http.Response, 1)
-	errorChan := make(chan error, 1)
-
-	// Run the HTTP request in a goroutine
-	go func() {
-		resp, err := client.Do(req.WithContext(ctx))
-		if err != nil {
-			errorChan <- err
-			return
-		}
-		responseChan <- resp
-	}()
-
-	// Wait for the response or the timeout
-	select {
-	case <-ctx.Done():
-		return nil, errors.New("request timed out")
-	case err := <-errorChan:
-		return nil, err
-	case resp := <-responseChan:
-		defer resp.Body.Close()
-
-		// Handle HTTP response
-		if resp.StatusCode == http.StatusNoContent {
-			return nil, nil
-		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			var result api.Session
-			bodyBytes, err := io.ReadAll(resp.Body)
-			if err != nil {
-				return nil, err
-			}
-			err = json.Unmarshal(bodyBytes, &result)
-			if err != nil {
-				return nil, err
-			}
-			return &result, nil
-		} else {
-			return nil, errors.New(resp.Status)
-		}
-	}
+	return &result, nil
 }
 
 // LinkApple adds an Apple ID to the social profiles on the current user's account.
 func (napi *NakamaApi) LinkApple(
-	bearerToken *string,
+	bearerToken string,
 	body *api.AccountApple,
 	options map[string]string,
-) (any, error) {
+) error {
 	// Define the URL path and query parameters
 	urlPath := "/v2/account/link/apple"
 	queryParams := url.Values{}
@@ -1163,7 +605,7 @@ func (napi *NakamaApi) LinkApple(
 	// Convert the body to JSON
 	bodyJson, err := json.Marshal(body)
 	if err != nil {
-		return nil, err
+		return errors.As(err)
 	}
 
 	// Construct the full URL
@@ -1172,74 +614,21 @@ func (napi *NakamaApi) LinkApple(
 	// Prepare the HTTP request
 	req, err := http.NewRequest("POST", fullUrl, bytes.NewBuffer(bodyJson))
 	if err != nil {
-		return nil, err
+		return errors.As(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-
-	// Set Bearer Token authorization header
-	if checkStr(bearerToken) {
-		req.Header.Set("Authorization", "Bearer "+*bearerToken)
+	if err := napi.doReq(bearerToken, req, options, nil); err != nil {
+		return errors.As(err)
 	}
-
-	// Apply additional custom headers or options if needed
-	for key, value := range options {
-		req.Header.Set(key, value)
-	}
-
-	// Create a context with a timeout
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(napi.TimeoutMs)*time.Millisecond)
-	defer cancel()
-
-	// Make the HTTP request
-	client := &http.Client{}
-	responseChan := make(chan *http.Response, 1)
-	errorChan := make(chan error, 1)
-
-	// Run the HTTP request in a goroutine
-	go func() {
-		resp, err := client.Do(req.WithContext(ctx))
-		if err != nil {
-			errorChan <- err
-			return
-		}
-		responseChan <- resp
-	}()
-
-	// Wait for the response or the timeout
-	select {
-	case <-ctx.Done():
-		return nil, errors.New("request timed out")
-	case err := <-errorChan:
-		return nil, err
-	case resp := <-responseChan:
-		defer resp.Body.Close()
-
-		// Handle HTTP response
-		if resp.StatusCode == http.StatusNoContent {
-			return nil, nil
-		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			var result any
-			bodyBytes, err := io.ReadAll(resp.Body)
-			if err != nil {
-				return nil, err
-			}
-			err = json.Unmarshal(bodyBytes, &result)
-			if err != nil {
-				return nil, err
-			}
-			return result, nil
-		} else {
-			return nil, errors.New(resp.Status)
-		}
-	}
+	return nil
 }
 
 // LinkCustom adds a custom ID to the social profiles on the current user's account.
 func (napi *NakamaApi) LinkCustom(
-	bearerToken *string,
+	bearerToken string,
 	body *api.AccountCustom,
 	options map[string]string,
-) (any, error) {
+) error {
 	// Define the URL path and query parameters
 	urlPath := "/v2/account/link/custom"
 	queryParams := url.Values{}
@@ -1247,7 +636,7 @@ func (napi *NakamaApi) LinkCustom(
 	// Convert the body to JSON
 	bodyJson, err := json.Marshal(body)
 	if err != nil {
-		return nil, err
+		return errors.As(err)
 	}
 
 	// Construct the full URL
@@ -1256,74 +645,21 @@ func (napi *NakamaApi) LinkCustom(
 	// Prepare the HTTP request
 	req, err := http.NewRequest("POST", fullUrl, bytes.NewBuffer(bodyJson))
 	if err != nil {
-		return nil, err
+		return errors.As(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-
-	// Set Bearer Token authorization header
-	if checkStr(bearerToken) {
-		req.Header.Set("Authorization", "Bearer "+*bearerToken)
+	if err := napi.doReq(bearerToken, req, options, nil); err != nil {
+		return errors.As(err)
 	}
-
-	// Apply additional custom headers or options if needed
-	for key, value := range options {
-		req.Header.Set(key, value)
-	}
-
-	// Create a context with a timeout
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(napi.TimeoutMs)*time.Millisecond)
-	defer cancel()
-
-	// Make the HTTP request
-	client := &http.Client{}
-	responseChan := make(chan *http.Response, 1)
-	errorChan := make(chan error, 1)
-
-	// Run the HTTP request in a goroutine
-	go func() {
-		resp, err := client.Do(req.WithContext(ctx))
-		if err != nil {
-			errorChan <- err
-			return
-		}
-		responseChan <- resp
-	}()
-
-	// Wait for the response or the timeout
-	select {
-	case <-ctx.Done():
-		return nil, errors.New("request timed out")
-	case err := <-errorChan:
-		return nil, err
-	case resp := <-responseChan:
-		defer resp.Body.Close()
-
-		// Handle HTTP response
-		if resp.StatusCode == http.StatusNoContent {
-			return nil, nil
-		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			var result any
-			bodyBytes, err := io.ReadAll(resp.Body)
-			if err != nil {
-				return nil, err
-			}
-			err = json.Unmarshal(bodyBytes, &result)
-			if err != nil {
-				return nil, err
-			}
-			return result, nil
-		} else {
-			return nil, errors.New(resp.Status)
-		}
-	}
+	return nil
 }
 
 // LinkDevice adds a device ID to the social profiles on the current user's account.
 func (napi *NakamaApi) LinkDevice(
-	bearerToken *string,
+	bearerToken string,
 	body *api.AccountDevice,
 	options map[string]string,
-) (any, error) {
+) error {
 	// Define the URL path and query parameters
 	urlPath := "/v2/account/link/device"
 	queryParams := url.Values{}
@@ -1331,7 +667,7 @@ func (napi *NakamaApi) LinkDevice(
 	// Convert the body to JSON
 	bodyJson, err := json.Marshal(body)
 	if err != nil {
-		return nil, err
+		return errors.As(err)
 	}
 
 	// Construct the full URL
@@ -1340,74 +676,21 @@ func (napi *NakamaApi) LinkDevice(
 	// Prepare the HTTP request
 	req, err := http.NewRequest("POST", fullUrl, bytes.NewBuffer(bodyJson))
 	if err != nil {
-		return nil, err
+		return errors.As(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-
-	// Set Bearer Token authorization header
-	if checkStr(bearerToken) {
-		req.Header.Set("Authorization", "Bearer "+*bearerToken)
+	if err := napi.doReq(bearerToken, req, options, nil); err != nil {
+		return errors.As(err)
 	}
-
-	// Apply additional custom headers or options if needed
-	for key, value := range options {
-		req.Header.Set(key, value)
-	}
-
-	// Create a context with a timeout
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(napi.TimeoutMs)*time.Millisecond)
-	defer cancel()
-
-	// Make the HTTP request
-	client := &http.Client{}
-	responseChan := make(chan *http.Response, 1)
-	errorChan := make(chan error, 1)
-
-	// Run the HTTP request in a goroutine
-	go func() {
-		resp, err := client.Do(req.WithContext(ctx))
-		if err != nil {
-			errorChan <- err
-			return
-		}
-		responseChan <- resp
-	}()
-
-	// Wait for the response or the timeout
-	select {
-	case <-ctx.Done():
-		return nil, errors.New("request timed out")
-	case err := <-errorChan:
-		return nil, err
-	case resp := <-responseChan:
-		defer resp.Body.Close()
-
-		// Handle HTTP response
-		if resp.StatusCode == http.StatusNoContent {
-			return nil, nil
-		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			var result any
-			bodyBytes, err := io.ReadAll(resp.Body)
-			if err != nil {
-				return nil, err
-			}
-			err = json.Unmarshal(bodyBytes, &result)
-			if err != nil {
-				return nil, err
-			}
-			return result, nil
-		} else {
-			return nil, errors.New(resp.Status)
-		}
-	}
+	return nil
 }
 
 // LinkEmail adds an email and password to the social profiles on the current user's account.
 func (napi *NakamaApi) LinkEmail(
-	bearerToken *string,
+	bearerToken string,
 	body *api.AccountEmail,
 	options map[string]string,
-) (any, error) {
+) error {
 	// Define the URL path and query parameters
 	urlPath := "/v2/account/link/email"
 	queryParams := url.Values{}
@@ -1415,7 +698,7 @@ func (napi *NakamaApi) LinkEmail(
 	// Convert the body to JSON
 	bodyJson, err := json.Marshal(body)
 	if err != nil {
-		return nil, err
+		return errors.As(err)
 	}
 
 	// Construct the full URL
@@ -1424,75 +707,22 @@ func (napi *NakamaApi) LinkEmail(
 	// Prepare the HTTP request
 	req, err := http.NewRequest("POST", fullUrl, bytes.NewBuffer(bodyJson))
 	if err != nil {
-		return nil, err
+		return errors.As(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-
-	// Set Bearer Token authorization header
-	if checkStr(bearerToken) {
-		req.Header.Set("Authorization", "Bearer "+*bearerToken)
+	if err := napi.doReq(bearerToken, req, options, nil); err != nil {
+		return errors.As(err)
 	}
-
-	// Apply additional custom headers or options if needed
-	for key, value := range options {
-		req.Header.Set(key, value)
-	}
-
-	// Create a context with a timeout
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(napi.TimeoutMs)*time.Millisecond)
-	defer cancel()
-
-	// Make the HTTP request
-	client := &http.Client{}
-	responseChan := make(chan *http.Response, 1)
-	errorChan := make(chan error, 1)
-
-	// Run the HTTP request in a goroutine
-	go func() {
-		resp, err := client.Do(req.WithContext(ctx))
-		if err != nil {
-			errorChan <- err
-			return
-		}
-		responseChan <- resp
-	}()
-
-	// Wait for the response or the timeout
-	select {
-	case <-ctx.Done():
-		return nil, errors.New("request timed out")
-	case err := <-errorChan:
-		return nil, err
-	case resp := <-responseChan:
-		defer resp.Body.Close()
-
-		// Handle HTTP response
-		if resp.StatusCode == http.StatusNoContent {
-			return nil, nil
-		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			var result any
-			bodyBytes, err := io.ReadAll(resp.Body)
-			if err != nil {
-				return nil, err
-			}
-			err = json.Unmarshal(bodyBytes, &result)
-			if err != nil {
-				return nil, err
-			}
-			return result, nil
-		} else {
-			return nil, errors.New(resp.Status)
-		}
-	}
+	return nil
 }
 
 // LinkFacebook adds a Facebook account to the social profiles on the current user's account.
 func (napi *NakamaApi) LinkFacebook(
-	bearerToken *string,
+	bearerToken string,
 	account *api.AccountFacebook,
 	sync *bool,
 	options map[string]string,
-) (any, error) {
+) error {
 	// Define the URL path and query parameters
 	urlPath := "/v2/account/link/facebook"
 	queryParams := url.Values{}
@@ -1503,7 +733,7 @@ func (napi *NakamaApi) LinkFacebook(
 	// Convert the body to JSON
 	bodyJson, err := json.Marshal(account)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	// Construct the full URL
@@ -1512,74 +742,22 @@ func (napi *NakamaApi) LinkFacebook(
 	// Prepare the HTTP request
 	req, err := http.NewRequest("POST", fullUrl, bytes.NewBuffer(bodyJson))
 	if err != nil {
-		return nil, err
+		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
-
-	// Set Bearer Token authorization header
-	if checkStr(bearerToken) {
-		req.Header.Set("Authorization", "Bearer "+*bearerToken)
+	if err := napi.doReq(bearerToken, req, options, nil); err != nil {
+		return errors.As(err)
 	}
+	return nil
 
-	// Apply additional custom headers or options if needed
-	for key, value := range options {
-		req.Header.Set(key, value)
-	}
-
-	// Create a context with a timeout
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(napi.TimeoutMs)*time.Millisecond)
-	defer cancel()
-
-	// Make the HTTP request
-	client := &http.Client{}
-	responseChan := make(chan *http.Response, 1)
-	errorChan := make(chan error, 1)
-
-	// Run the HTTP request in a goroutine
-	go func() {
-		resp, err := client.Do(req.WithContext(ctx))
-		if err != nil {
-			errorChan <- err
-			return
-		}
-		responseChan <- resp
-	}()
-
-	// Wait for the response or the timeout
-	select {
-	case <-ctx.Done():
-		return nil, errors.New("request timed out")
-	case err := <-errorChan:
-		return nil, err
-	case resp := <-responseChan:
-		defer resp.Body.Close()
-
-		// Handle HTTP response
-		if resp.StatusCode == http.StatusNoContent {
-			return nil, nil
-		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			var result any
-			bodyBytes, err := io.ReadAll(resp.Body)
-			if err != nil {
-				return nil, err
-			}
-			err = json.Unmarshal(bodyBytes, &result)
-			if err != nil {
-				return nil, err
-			}
-			return result, nil
-		} else {
-			return nil, errors.New(resp.Status)
-		}
-	}
 }
 
 // LinkFacebookInstantGame adds a Facebook Instant Game account to the social profiles on the current user's account.
 func (napi *NakamaApi) LinkFacebookInstantGame(
-	bearerToken *string,
+	bearerToken string,
 	body *api.AccountFacebookInstantGame,
 	options map[string]string,
-) (any, error) {
+) error {
 	// Define the URL path and query parameters
 	urlPath := "/v2/account/link/facebookinstantgame"
 	queryParams := url.Values{}
@@ -1587,7 +765,7 @@ func (napi *NakamaApi) LinkFacebookInstantGame(
 	// Convert the body to JSON
 	bodyJson, err := json.Marshal(body)
 	if err != nil {
-		return nil, err
+		return errors.As(err)
 	}
 
 	// Construct the full URL
@@ -1596,74 +774,22 @@ func (napi *NakamaApi) LinkFacebookInstantGame(
 	// Prepare the HTTP request
 	req, err := http.NewRequest("POST", fullUrl, bytes.NewBuffer(bodyJson))
 	if err != nil {
-		return nil, err
+		return errors.As(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-
-	// Set Bearer Token authorization header
-	if checkStr(bearerToken) {
-		req.Header.Set("Authorization", "Bearer "+*bearerToken)
+	if err := napi.doReq(bearerToken, req, options, nil); err != nil {
+		return errors.As(err)
 	}
 
-	// Apply additional custom headers or options if needed
-	for key, value := range options {
-		req.Header.Set(key, value)
-	}
-
-	// Create a context with a timeout
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(napi.TimeoutMs)*time.Millisecond)
-	defer cancel()
-
-	// Make the HTTP request
-	client := &http.Client{}
-	responseChan := make(chan *http.Response, 1)
-	errorChan := make(chan error, 1)
-
-	// Run the HTTP request in a goroutine
-	go func() {
-		resp, err := client.Do(req.WithContext(ctx))
-		if err != nil {
-			errorChan <- err
-			return
-		}
-		responseChan <- resp
-	}()
-
-	// Wait for the response or the timeout
-	select {
-	case <-ctx.Done():
-		return nil, errors.New("request timed out")
-	case err := <-errorChan:
-		return nil, err
-	case resp := <-responseChan:
-		defer resp.Body.Close()
-
-		// Handle HTTP response
-		if resp.StatusCode == http.StatusNoContent {
-			return nil, nil
-		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			var result any
-			bodyBytes, err := io.ReadAll(resp.Body)
-			if err != nil {
-				return nil, err
-			}
-			err = json.Unmarshal(bodyBytes, &result)
-			if err != nil {
-				return nil, err
-			}
-			return result, nil
-		} else {
-			return nil, errors.New(resp.Status)
-		}
-	}
+	return nil
 }
 
 // LinkGameCenter adds Apple's GameCenter to the social profiles on the current user's account.
 func (napi *NakamaApi) LinkGameCenter(
-	bearerToken *string,
+	bearerToken string,
 	body *api.AccountGameCenter,
 	options map[string]string,
-) (any, error) {
+) error {
 	// Define the URL path and query parameters
 	urlPath := "/v2/account/link/gamecenter"
 	queryParams := url.Values{}
@@ -1671,7 +797,7 @@ func (napi *NakamaApi) LinkGameCenter(
 	// Convert the body to JSON
 	bodyJson, err := json.Marshal(body)
 	if err != nil {
-		return nil, err
+		return errors.As(err)
 	}
 
 	// Construct the full URL
@@ -1680,74 +806,22 @@ func (napi *NakamaApi) LinkGameCenter(
 	// Prepare the HTTP request
 	req, err := http.NewRequest("POST", fullUrl, bytes.NewBuffer(bodyJson))
 	if err != nil {
-		return nil, err
+		return errors.As(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-
-	// Set Bearer Token authorization header
-	if checkStr(bearerToken) {
-		req.Header.Set("Authorization", "Bearer "+*bearerToken)
+	if err := napi.doReq(bearerToken, req, options, nil); err != nil {
+		return errors.As(err)
 	}
+	return nil
 
-	// Apply additional custom headers or options if needed
-	for key, value := range options {
-		req.Header.Set(key, value)
-	}
-
-	// Create a context with a timeout
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(napi.TimeoutMs)*time.Millisecond)
-	defer cancel()
-
-	// Make the HTTP request
-	client := &http.Client{}
-	responseChan := make(chan *http.Response, 1)
-	errorChan := make(chan error, 1)
-
-	// Run the HTTP request in a goroutine
-	go func() {
-		resp, err := client.Do(req.WithContext(ctx))
-		if err != nil {
-			errorChan <- err
-			return
-		}
-		responseChan <- resp
-	}()
-
-	// Wait for the response or the timeout
-	select {
-	case <-ctx.Done():
-		return nil, errors.New("request timed out")
-	case err := <-errorChan:
-		return nil, err
-	case resp := <-responseChan:
-		defer resp.Body.Close()
-
-		// Handle HTTP response
-		if resp.StatusCode == http.StatusNoContent {
-			return nil, nil
-		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			var result any
-			bodyBytes, err := io.ReadAll(resp.Body)
-			if err != nil {
-				return nil, err
-			}
-			err = json.Unmarshal(bodyBytes, &result)
-			if err != nil {
-				return nil, err
-			}
-			return result, nil
-		} else {
-			return nil, errors.New(resp.Status)
-		}
-	}
 }
 
 // LinkGoogle adds a Google account to the social profiles on the current user's account.
 func (napi *NakamaApi) LinkGoogle(
-	bearerToken *string,
+	bearerToken string,
 	body *api.AccountGoogle,
 	options map[string]string,
-) (any, error) {
+) error {
 	// Define the URL path and query parameters
 	urlPath := "/v2/account/link/google"
 	queryParams := url.Values{}
@@ -1755,7 +829,7 @@ func (napi *NakamaApi) LinkGoogle(
 	// Convert the body to JSON
 	bodyJson, err := json.Marshal(body)
 	if err != nil {
-		return nil, err
+		return errors.As(err)
 	}
 
 	// Construct the full URL
@@ -1764,74 +838,21 @@ func (napi *NakamaApi) LinkGoogle(
 	// Prepare the HTTP request
 	req, err := http.NewRequest("POST", fullUrl, bytes.NewBuffer(bodyJson))
 	if err != nil {
-		return nil, err
+		return errors.As(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-
-	// Set Bearer Token authorization header
-	if checkStr(bearerToken) {
-		req.Header.Set("Authorization", "Bearer "+*bearerToken)
+	if err := napi.doReq(bearerToken, req, options, nil); err != nil {
+		return errors.As(err)
 	}
-
-	// Apply additional custom headers or options if needed
-	for key, value := range options {
-		req.Header.Set(key, value)
-	}
-
-	// Create a context with a timeout
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(napi.TimeoutMs)*time.Millisecond)
-	defer cancel()
-
-	// Make the HTTP request
-	client := &http.Client{}
-	responseChan := make(chan *http.Response, 1)
-	errorChan := make(chan error, 1)
-
-	// Run the HTTP request in a goroutine
-	go func() {
-		resp, err := client.Do(req.WithContext(ctx))
-		if err != nil {
-			errorChan <- err
-			return
-		}
-		responseChan <- resp
-	}()
-
-	// Wait for the response or the timeout
-	select {
-	case <-ctx.Done():
-		return nil, errors.New("request timed out")
-	case err := <-errorChan:
-		return nil, err
-	case resp := <-responseChan:
-		defer resp.Body.Close()
-
-		// Handle HTTP response
-		if resp.StatusCode == http.StatusNoContent {
-			return nil, nil
-		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			var result any
-			bodyBytes, err := io.ReadAll(resp.Body)
-			if err != nil {
-				return nil, err
-			}
-			err = json.Unmarshal(bodyBytes, &result)
-			if err != nil {
-				return nil, err
-			}
-			return result, nil
-		} else {
-			return nil, errors.New(resp.Status)
-		}
-	}
+	return nil
 }
 
 // LinkSteam adds a Steam account to the social profiles on the current user's account.
 func (napi *NakamaApi) LinkSteam(
-	bearerToken *string,
+	bearerToken string,
 	body *api.LinkSteamRequest,
 	options map[string]string,
-) (any, error) {
+) error {
 	// Define the URL path and query parameters
 	urlPath := "/v2/account/link/steam"
 	queryParams := url.Values{}
@@ -1839,7 +860,7 @@ func (napi *NakamaApi) LinkSteam(
 	// Convert the body to JSON
 	bodyJson, err := json.Marshal(body)
 	if err != nil {
-		return nil, err
+		return errors.As(err)
 	}
 
 	// Construct the full URL
@@ -1848,72 +869,19 @@ func (napi *NakamaApi) LinkSteam(
 	// Prepare the HTTP request
 	req, err := http.NewRequest("POST", fullUrl, bytes.NewBuffer(bodyJson))
 	if err != nil {
-		return nil, err
+		return errors.As(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-
-	// Set Bearer Token authorization header
-	if checkStr(bearerToken) {
-		req.Header.Set("Authorization", "Bearer "+*bearerToken)
+	if err := napi.doReq(bearerToken, req, options, nil); err != nil {
+		return errors.As(err)
 	}
-
-	// Apply additional custom headers or options if needed
-	for key, value := range options {
-		req.Header.Set(key, value)
-	}
-
-	// Create a context with a timeout
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(napi.TimeoutMs)*time.Millisecond)
-	defer cancel()
-
-	// Make the HTTP request
-	client := &http.Client{}
-	responseChan := make(chan *http.Response, 1)
-	errorChan := make(chan error, 1)
-
-	// Run the HTTP request in a goroutine
-	go func() {
-		resp, err := client.Do(req.WithContext(ctx))
-		if err != nil {
-			errorChan <- err
-			return
-		}
-		responseChan <- resp
-	}()
-
-	// Wait for the response or the timeout
-	select {
-	case <-ctx.Done():
-		return nil, errors.New("request timed out")
-	case err := <-errorChan:
-		return nil, err
-	case resp := <-responseChan:
-		defer resp.Body.Close()
-
-		// Handle HTTP response
-		if resp.StatusCode == http.StatusNoContent {
-			return nil, nil
-		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			var result any
-			bodyBytes, err := io.ReadAll(resp.Body)
-			if err != nil {
-				return nil, err
-			}
-			err = json.Unmarshal(bodyBytes, &result)
-			if err != nil {
-				return nil, err
-			}
-			return result, nil
-		} else {
-			return nil, errors.New(resp.Status)
-		}
-	}
+	return nil
 }
 
 // SessionRefresh refreshes a user's session using a refresh token retrieved from a previous authentication request.
 func (napi *NakamaApi) SessionRefresh(
-	basicAuthUsername *string,
-	basicAuthPassword *string,
+	basicAuthUsername string,
+	basicAuthPassword string,
 	body *api.SessionRefreshRequest,
 	options map[string]string,
 ) (*api.Session, error) {
@@ -1995,10 +963,10 @@ func (napi *NakamaApi) SessionRefresh(
 
 // UnlinkApple removes the Apple ID from the social profiles on the current user's account.
 func (napi *NakamaApi) UnlinkApple(
-	bearerToken *string,
+	bearerToken string,
 	body *api.AccountApple,
 	options map[string]string,
-) (any, error) {
+) error {
 	// Define the URL path and query parameters
 	urlPath := "/v2/account/unlink/apple"
 	queryParams := url.Values{}
@@ -2006,7 +974,7 @@ func (napi *NakamaApi) UnlinkApple(
 	// Serialize the body to JSON
 	bodyJson, err := json.Marshal(body)
 	if err != nil {
-		return nil, err
+		return errors.As(err)
 	}
 
 	// Construct the full URL
@@ -2015,74 +983,21 @@ func (napi *NakamaApi) UnlinkApple(
 	// Prepare the HTTP request
 	req, err := http.NewRequest("POST", fullUrl, bytes.NewBuffer(bodyJson))
 	if err != nil {
-		return nil, err
+		return errors.As(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-
-	// Set Bearer Token authorization header
-	if checkStr(bearerToken) {
-		req.Header.Set("Authorization", "Bearer "+*bearerToken)
+	if err := napi.doReq(bearerToken, req, options, nil); err != nil {
+		return errors.As(err)
 	}
-
-	// Apply additional custom headers or options if needed
-	for key, value := range options {
-		req.Header.Set(key, value)
-	}
-
-	// Create a context with a timeout
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(napi.TimeoutMs)*time.Millisecond)
-	defer cancel()
-
-	// Make the HTTP request
-	client := &http.Client{}
-	responseChan := make(chan *http.Response, 1)
-	errorChan := make(chan error, 1)
-
-	// Run the HTTP request in a goroutine
-	go func() {
-		resp, err := client.Do(req.WithContext(ctx))
-		if err != nil {
-			errorChan <- err
-			return
-		}
-		responseChan <- resp
-	}()
-
-	// Wait for the response or the timeout
-	select {
-	case <-ctx.Done():
-		return nil, errors.New("request timed out")
-	case err := <-errorChan:
-		return nil, err
-	case resp := <-responseChan:
-		defer resp.Body.Close()
-
-		// Handle HTTP response
-		if resp.StatusCode == http.StatusNoContent {
-			return nil, nil
-		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			var result any
-			bodyBytes, err := io.ReadAll(resp.Body)
-			if err != nil {
-				return nil, err
-			}
-			err = json.Unmarshal(bodyBytes, &result)
-			if err != nil {
-				return nil, err
-			}
-			return result, nil
-		} else {
-			return nil, errors.New(resp.Status)
-		}
-	}
+	return nil
 }
 
 // UnlinkCustom removes the custom ID from the social profiles on the current user's account.
 func (napi *NakamaApi) UnlinkCustom(
-	bearerToken *string,
+	bearerToken string,
 	body *api.AccountCustom,
 	options map[string]string,
-) (any, error) {
+) error {
 	// Define the URL path and query parameters
 	urlPath := "/v2/account/unlink/custom"
 	queryParams := url.Values{}
@@ -2090,7 +1005,7 @@ func (napi *NakamaApi) UnlinkCustom(
 	// Serialize the body to JSON
 	bodyJson, err := json.Marshal(body)
 	if err != nil {
-		return nil, err
+		return errors.As(err)
 	}
 
 	// Construct the full URL
@@ -2099,74 +1014,23 @@ func (napi *NakamaApi) UnlinkCustom(
 	// Prepare the HTTP request
 	req, err := http.NewRequest("POST", fullUrl, bytes.NewBuffer(bodyJson))
 	if err != nil {
-		return nil, err
+		return errors.As(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	// Set Bearer Token authorization header
-	if checkStr(bearerToken) {
-		req.Header.Set("Authorization", "Bearer "+*bearerToken)
+	if err := napi.doReq(bearerToken, req, options, nil); err != nil {
+		return errors.As(err)
 	}
+	return nil
 
-	// Apply additional custom headers or options if needed
-	for key, value := range options {
-		req.Header.Set(key, value)
-	}
-
-	// Create a context with a timeout
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(napi.TimeoutMs)*time.Millisecond)
-	defer cancel()
-
-	// Make the HTTP request
-	client := &http.Client{}
-	responseChan := make(chan *http.Response, 1)
-	errorChan := make(chan error, 1)
-
-	// Run the HTTP request in a goroutine
-	go func() {
-		resp, err := client.Do(req.WithContext(ctx))
-		if err != nil {
-			errorChan <- err
-			return
-		}
-		responseChan <- resp
-	}()
-
-	// Wait for the response or the timeout
-	select {
-	case <-ctx.Done():
-		return nil, errors.New("request timed out")
-	case err := <-errorChan:
-		return nil, err
-	case resp := <-responseChan:
-		defer resp.Body.Close()
-
-		// Handle HTTP response
-		if resp.StatusCode == http.StatusNoContent {
-			return nil, nil
-		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			var result any
-			bodyBytes, err := io.ReadAll(resp.Body)
-			if err != nil {
-				return nil, err
-			}
-			err = json.Unmarshal(bodyBytes, &result)
-			if err != nil {
-				return nil, err
-			}
-			return result, nil
-		} else {
-			return nil, errors.New(resp.Status)
-		}
-	}
 }
 
 // UnlinkDevice removes the device ID from the social profiles on the current user's account.
 func (napi *NakamaApi) UnlinkDevice(
-	bearerToken *string,
+	bearerToken string,
 	body *api.AccountDevice,
 	options map[string]string,
-) (any, error) {
+) error {
 	// Define the URL path and query parameters
 	urlPath := "/v2/account/unlink/device"
 	queryParams := url.Values{}
@@ -2174,7 +1038,7 @@ func (napi *NakamaApi) UnlinkDevice(
 	// Serialize the body to JSON
 	bodyJson, err := json.Marshal(body)
 	if err != nil {
-		return nil, err
+		return errors.As(err)
 	}
 
 	// Construct the full URL
@@ -2183,74 +1047,21 @@ func (napi *NakamaApi) UnlinkDevice(
 	// Prepare the HTTP request
 	req, err := http.NewRequest("POST", fullUrl, bytes.NewBuffer(bodyJson))
 	if err != nil {
-		return nil, err
+		return errors.As(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-
-	// Set Bearer Token authorization header
-	if checkStr(bearerToken) {
-		req.Header.Set("Authorization", "Bearer "+*bearerToken)
+	if err := napi.doReq(bearerToken, req, options, nil); err != nil {
+		return errors.As(err)
 	}
-
-	// Apply additional custom headers or options if needed
-	for key, value := range options {
-		req.Header.Set(key, value)
-	}
-
-	// Create a context with a timeout
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(napi.TimeoutMs)*time.Millisecond)
-	defer cancel()
-
-	// Make the HTTP request
-	client := &http.Client{}
-	responseChan := make(chan *http.Response, 1)
-	errorChan := make(chan error, 1)
-
-	// Run the HTTP request in a goroutine
-	go func() {
-		resp, err := client.Do(req.WithContext(ctx))
-		if err != nil {
-			errorChan <- err
-			return
-		}
-		responseChan <- resp
-	}()
-
-	// Wait for the response or the timeout
-	select {
-	case <-ctx.Done():
-		return nil, errors.New("request timed out")
-	case err := <-errorChan:
-		return nil, err
-	case resp := <-responseChan:
-		defer resp.Body.Close()
-
-		// Handle HTTP response
-		if resp.StatusCode == http.StatusNoContent {
-			return nil, nil
-		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			var result any
-			bodyBytes, err := io.ReadAll(resp.Body)
-			if err != nil {
-				return nil, err
-			}
-			err = json.Unmarshal(bodyBytes, &result)
-			if err != nil {
-				return nil, err
-			}
-			return result, nil
-		} else {
-			return nil, errors.New(resp.Status)
-		}
-	}
+	return nil
 }
 
 // UnlinkEmail removes the email+password from the social profiles on the current user's account.
 func (napi *NakamaApi) UnlinkEmail(
-	bearerToken *string,
+	bearerToken string,
 	body *api.AccountEmail,
 	options map[string]string,
-) (any, error) {
+) error {
 	// Define the URL path and query parameters
 	urlPath := "/v2/account/unlink/email"
 	queryParams := url.Values{}
@@ -2258,7 +1069,7 @@ func (napi *NakamaApi) UnlinkEmail(
 	// Serialize the body to JSON
 	bodyJson, err := json.Marshal(body)
 	if err != nil {
-		return nil, err
+		return errors.As(err)
 	}
 
 	// Construct the full URL
@@ -2267,74 +1078,21 @@ func (napi *NakamaApi) UnlinkEmail(
 	// Prepare the HTTP request
 	req, err := http.NewRequest("POST", fullUrl, bytes.NewBuffer(bodyJson))
 	if err != nil {
-		return nil, err
+		return errors.As(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-
-	// Set Bearer Token authorization header
-	if checkStr(bearerToken) {
-		req.Header.Set("Authorization", "Bearer "+*bearerToken)
+	if err := napi.doReq(bearerToken, req, options, nil); err != nil {
+		return errors.As(err)
 	}
-
-	// Apply additional custom headers or options if needed
-	for key, value := range options {
-		req.Header.Set(key, value)
-	}
-
-	// Create a context with a timeout
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(napi.TimeoutMs)*time.Millisecond)
-	defer cancel()
-
-	// Make the HTTP request
-	client := &http.Client{}
-	responseChan := make(chan *http.Response, 1)
-	errorChan := make(chan error, 1)
-
-	// Run the HTTP request in a goroutine
-	go func() {
-		resp, err := client.Do(req.WithContext(ctx))
-		if err != nil {
-			errorChan <- err
-			return
-		}
-		responseChan <- resp
-	}()
-
-	// Wait for the response or the timeout
-	select {
-	case <-ctx.Done():
-		return nil, errors.New("request timed out")
-	case err := <-errorChan:
-		return nil, err
-	case resp := <-responseChan:
-		defer resp.Body.Close()
-
-		// Handle HTTP response
-		if resp.StatusCode == http.StatusNoContent {
-			return nil, nil
-		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			var result any
-			bodyBytes, err := io.ReadAll(resp.Body)
-			if err != nil {
-				return nil, err
-			}
-			err = json.Unmarshal(bodyBytes, &result)
-			if err != nil {
-				return nil, err
-			}
-			return result, nil
-		} else {
-			return nil, errors.New(resp.Status)
-		}
-	}
+	return nil
 }
 
 // UnlinkFacebook removes the Facebook profile from the social profiles on the current user's account.
 func (napi *NakamaApi) UnlinkFacebook(
-	bearerToken *string,
+	bearerToken string,
 	body *api.AccountFacebook,
 	options map[string]string,
-) (any, error) {
+) error {
 	// Define the URL path and query parameters
 	urlPath := "/v2/account/unlink/facebook"
 	queryParams := url.Values{}
@@ -2342,7 +1100,7 @@ func (napi *NakamaApi) UnlinkFacebook(
 	// Serialize the body to JSON
 	bodyJson, err := json.Marshal(body)
 	if err != nil {
-		return nil, err
+		return errors.As(err)
 	}
 
 	// Construct the full URL
@@ -2351,74 +1109,21 @@ func (napi *NakamaApi) UnlinkFacebook(
 	// Prepare the HTTP request
 	req, err := http.NewRequest("POST", fullUrl, bytes.NewBuffer(bodyJson))
 	if err != nil {
-		return nil, err
+		return errors.As(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-
-	// Set Bearer Token authorization header
-	if checkStr(bearerToken) {
-		req.Header.Set("Authorization", "Bearer "+*bearerToken)
+	if err := napi.doReq(bearerToken, req, options, nil); err != nil {
+		return errors.As(err)
 	}
-
-	// Apply additional custom headers or options if needed
-	for key, value := range options {
-		req.Header.Set(key, value)
-	}
-
-	// Create a context with a timeout
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(napi.TimeoutMs)*time.Millisecond)
-	defer cancel()
-
-	// Make the HTTP request
-	client := &http.Client{}
-	responseChan := make(chan *http.Response, 1)
-	errorChan := make(chan error, 1)
-
-	// Run the HTTP request in a goroutine
-	go func() {
-		resp, err := client.Do(req.WithContext(ctx))
-		if err != nil {
-			errorChan <- err
-			return
-		}
-		responseChan <- resp
-	}()
-
-	// Wait for the response or the timeout
-	select {
-	case <-ctx.Done():
-		return nil, errors.New("request timed out")
-	case err := <-errorChan:
-		return nil, err
-	case resp := <-responseChan:
-		defer resp.Body.Close()
-
-		// Handle HTTP response
-		if resp.StatusCode == http.StatusNoContent {
-			return nil, nil
-		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			var result any
-			bodyBytes, err := io.ReadAll(resp.Body)
-			if err != nil {
-				return nil, err
-			}
-			err = json.Unmarshal(bodyBytes, &result)
-			if err != nil {
-				return nil, err
-			}
-			return result, nil
-		} else {
-			return nil, errors.New(resp.Status)
-		}
-	}
+	return nil
 }
 
 // UnlinkFacebookInstantGame removes the Facebook Instant Game profile from the social profiles on the current user's account.
 func (napi *NakamaApi) UnlinkFacebookInstantGame(
-	bearerToken *string,
+	bearerToken string,
 	body *api.AccountFacebookInstantGame,
 	options map[string]string,
-) (any, error) {
+) error {
 	// Define the URL path and query parameters
 	urlPath := "/v2/account/unlink/facebookinstantgame"
 	queryParams := url.Values{}
@@ -2426,7 +1131,7 @@ func (napi *NakamaApi) UnlinkFacebookInstantGame(
 	// Serialize the body to JSON
 	bodyJson, err := json.Marshal(body)
 	if err != nil {
-		return nil, err
+		return errors.As(err)
 	}
 
 	// Construct the full URL
@@ -2435,74 +1140,21 @@ func (napi *NakamaApi) UnlinkFacebookInstantGame(
 	// Prepare the HTTP request
 	req, err := http.NewRequest("POST", fullUrl, bytes.NewBuffer(bodyJson))
 	if err != nil {
-		return nil, err
+		return errors.As(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-
-	// Set Bearer Token authorization header
-	if checkStr(bearerToken) {
-		req.Header.Set("Authorization", "Bearer "+*bearerToken)
+	if err := napi.doReq(bearerToken, req, options, nil); err != nil {
+		return errors.As(err)
 	}
-
-	// Apply additional custom headers or options if needed
-	for key, value := range options {
-		req.Header.Set(key, value)
-	}
-
-	// Create a context with a timeout
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(napi.TimeoutMs)*time.Millisecond)
-	defer cancel()
-
-	// Make the HTTP request
-	client := &http.Client{}
-	responseChan := make(chan *http.Response, 1)
-	errorChan := make(chan error, 1)
-
-	// Run the HTTP request in a goroutine
-	go func() {
-		resp, err := client.Do(req.WithContext(ctx))
-		if err != nil {
-			errorChan <- err
-			return
-		}
-		responseChan <- resp
-	}()
-
-	// Wait for the response or the timeout
-	select {
-	case <-ctx.Done():
-		return nil, errors.New("request timed out")
-	case err := <-errorChan:
-		return nil, err
-	case resp := <-responseChan:
-		defer resp.Body.Close()
-
-		// Handle HTTP response
-		if resp.StatusCode == http.StatusNoContent {
-			return nil, nil
-		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			var result any
-			bodyBytes, err := io.ReadAll(resp.Body)
-			if err != nil {
-				return nil, err
-			}
-			err = json.Unmarshal(bodyBytes, &result)
-			if err != nil {
-				return nil, err
-			}
-			return result, nil
-		} else {
-			return nil, errors.New(resp.Status)
-		}
-	}
+	return nil
 }
 
 // UnlinkGameCenter removes the GameCenter profile from the social profiles on the current user's account.
 func (napi *NakamaApi) UnlinkGameCenter(
-	bearerToken *string,
+	bearerToken string,
 	body *api.AccountGameCenter,
 	options map[string]string,
-) (any, error) {
+) error {
 	// Define the URL path and query parameters
 	urlPath := "/v2/account/unlink/gamecenter"
 	queryParams := url.Values{}
@@ -2510,7 +1162,7 @@ func (napi *NakamaApi) UnlinkGameCenter(
 	// Serialize the body to JSON
 	bodyJson, err := json.Marshal(body)
 	if err != nil {
-		return nil, err
+		return errors.As(err)
 	}
 
 	// Construct the full URL
@@ -2519,74 +1171,21 @@ func (napi *NakamaApi) UnlinkGameCenter(
 	// Prepare the HTTP request
 	req, err := http.NewRequest("POST", fullUrl, bytes.NewBuffer(bodyJson))
 	if err != nil {
-		return nil, err
+		return errors.As(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-
-	// Set Bearer Token authorization header
-	if checkStr(bearerToken) {
-		req.Header.Set("Authorization", "Bearer "+*bearerToken)
+	if err := napi.doReq(bearerToken, req, options, nil); err != nil {
+		return errors.As(err)
 	}
-
-	// Apply additional custom headers or options if needed
-	for key, value := range options {
-		req.Header.Set(key, value)
-	}
-
-	// Create a context with a timeout
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(napi.TimeoutMs)*time.Millisecond)
-	defer cancel()
-
-	// Make the HTTP request
-	client := &http.Client{}
-	responseChan := make(chan *http.Response, 1)
-	errorChan := make(chan error, 1)
-
-	// Run the HTTP request in a goroutine
-	go func() {
-		resp, err := client.Do(req.WithContext(ctx))
-		if err != nil {
-			errorChan <- err
-			return
-		}
-		responseChan <- resp
-	}()
-
-	// Wait for the response or the timeout
-	select {
-	case <-ctx.Done():
-		return nil, errors.New("request timed out")
-	case err := <-errorChan:
-		return nil, err
-	case resp := <-responseChan:
-		defer resp.Body.Close()
-
-		// Handle HTTP response
-		if resp.StatusCode == http.StatusNoContent {
-			return nil, nil
-		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			var result any
-			bodyBytes, err := io.ReadAll(resp.Body)
-			if err != nil {
-				return nil, err
-			}
-			err = json.Unmarshal(bodyBytes, &result)
-			if err != nil {
-				return nil, err
-			}
-			return result, nil
-		} else {
-			return nil, errors.New(resp.Status)
-		}
-	}
+	return nil
 }
 
 // UnlinkGoogle removes the Google profile from the social profiles on the current user's account.
 func (napi *NakamaApi) UnlinkGoogle(
-	bearerToken *string,
+	bearerToken string,
 	body *api.AccountGoogle,
 	options map[string]string,
-) (any, error) {
+) error {
 	// Define the URL path and query parameters
 	urlPath := "/v2/account/unlink/google"
 	queryParams := url.Values{}
@@ -2594,7 +1193,7 @@ func (napi *NakamaApi) UnlinkGoogle(
 	// Serialize the body to JSON
 	bodyJson, err := json.Marshal(body)
 	if err != nil {
-		return nil, err
+		return errors.As(err)
 	}
 
 	// Construct the full URL
@@ -2603,74 +1202,21 @@ func (napi *NakamaApi) UnlinkGoogle(
 	// Prepare the HTTP request
 	req, err := http.NewRequest("POST", fullUrl, bytes.NewBuffer(bodyJson))
 	if err != nil {
-		return nil, err
+		return errors.As(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-
-	// Set Bearer Token authorization header
-	if checkStr(bearerToken) {
-		req.Header.Set("Authorization", "Bearer "+*bearerToken)
+	if err := napi.doReq(bearerToken, req, options, nil); err != nil {
+		return errors.As(err)
 	}
-
-	// Apply additional custom headers or options if needed
-	for key, value := range options {
-		req.Header.Set(key, value)
-	}
-
-	// Create a context with a timeout
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(napi.TimeoutMs)*time.Millisecond)
-	defer cancel()
-
-	// Make the HTTP request
-	client := &http.Client{}
-	responseChan := make(chan *http.Response, 1)
-	errorChan := make(chan error, 1)
-
-	// Run the HTTP request in a goroutine
-	go func() {
-		resp, err := client.Do(req.WithContext(ctx))
-		if err != nil {
-			errorChan <- err
-			return
-		}
-		responseChan <- resp
-	}()
-
-	// Wait for the response or the timeout
-	select {
-	case <-ctx.Done():
-		return nil, errors.New("request timed out")
-	case err := <-errorChan:
-		return nil, err
-	case resp := <-responseChan:
-		defer resp.Body.Close()
-
-		// Handle HTTP response
-		if resp.StatusCode == http.StatusNoContent {
-			return nil, nil
-		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			var result any
-			bodyBytes, err := io.ReadAll(resp.Body)
-			if err != nil {
-				return nil, err
-			}
-			err = json.Unmarshal(bodyBytes, &result)
-			if err != nil {
-				return nil, err
-			}
-			return result, nil
-		} else {
-			return nil, errors.New(resp.Status)
-		}
-	}
+	return nil
 }
 
 // UnlinkSteam removes the Steam profile from the social profiles on the current user's account.
 func (napi *NakamaApi) UnlinkSteam(
-	bearerToken *string,
+	bearerToken string,
 	body *api.AccountSteam,
 	options map[string]string,
-) (any, error) {
+) error {
 	// Define the URL path and query parameters
 	urlPath := "/v2/account/unlink/steam"
 	queryParams := url.Values{}
@@ -2678,7 +1224,7 @@ func (napi *NakamaApi) UnlinkSteam(
 	// Serialize the body to JSON
 	bodyJson, err := json.Marshal(body)
 	if err != nil {
-		return nil, err
+		return errors.As(err)
 	}
 
 	// Construct the full URL
@@ -2687,66 +1233,13 @@ func (napi *NakamaApi) UnlinkSteam(
 	// Prepare the HTTP request
 	req, err := http.NewRequest("POST", fullUrl, bytes.NewBuffer(bodyJson))
 	if err != nil {
-		return nil, err
+		return errors.As(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-
-	// Set Bearer Token authorization header
-	if checkStr(bearerToken) {
-		req.Header.Set("Authorization", "Bearer "+*bearerToken)
+	if err := napi.doReq(bearerToken, req, options, nil); err != nil {
+		return errors.As(err)
 	}
-
-	// Apply additional custom headers or options if needed
-	for key, value := range options {
-		req.Header.Set(key, value)
-	}
-
-	// Create a context with a timeout
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(napi.TimeoutMs)*time.Millisecond)
-	defer cancel()
-
-	// Make the HTTP request
-	client := &http.Client{}
-	responseChan := make(chan *http.Response, 1)
-	errorChan := make(chan error, 1)
-
-	// Run the HTTP request in a goroutine
-	go func() {
-		resp, err := client.Do(req.WithContext(ctx))
-		if err != nil {
-			errorChan <- err
-			return
-		}
-		responseChan <- resp
-	}()
-
-	// Wait for the response or the timeout
-	select {
-	case <-ctx.Done():
-		return nil, errors.New("request timed out")
-	case err := <-errorChan:
-		return nil, err
-	case resp := <-responseChan:
-		defer resp.Body.Close()
-
-		// Handle HTTP response
-		if resp.StatusCode == http.StatusNoContent {
-			return nil, nil
-		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			var result any
-			bodyBytes, err := io.ReadAll(resp.Body)
-			if err != nil {
-				return nil, err
-			}
-			err = json.Unmarshal(bodyBytes, &result)
-			if err != nil {
-				return nil, err
-			}
-			return result, nil
-		} else {
-			return nil, errors.New(resp.Status)
-		}
-	}
+	return nil
 }
 
 // ListChannelMessages lists a channel's message history.
@@ -2849,7 +1342,7 @@ func (napi *NakamaApi) Event(
 	bearerToken *string,
 	body *api.Event,
 	options map[string]string,
-) (any, error) {
+) error {
 	// Define the URL path and query parameters
 	urlPath := "/v2/event"
 	queryParams := url.Values{}
@@ -2857,7 +1350,7 @@ func (napi *NakamaApi) Event(
 	// Serialize the body to JSON
 	bodyJson, err := json.Marshal(body)
 	if err != nil {
-		return nil, err
+		return errors.As(err)
 	}
 
 	// Construct the full URL
@@ -2866,7 +1359,7 @@ func (napi *NakamaApi) Event(
 	// Prepare the HTTP request
 	req, err := http.NewRequest("POST", fullUrl, bytes.NewBuffer(bodyJson))
 	if err != nil {
-		return nil, err
+		return errors.As(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 
@@ -2902,28 +1395,19 @@ func (napi *NakamaApi) Event(
 	// Wait for the response or the timeout
 	select {
 	case <-ctx.Done():
-		return nil, errors.New("request timed out")
+		return errors.New("request timed out")
 	case err := <-errorChan:
-		return nil, err
+		return errors.As(err)
 	case resp := <-responseChan:
 		defer resp.Body.Close()
 
 		// Handle HTTP response
 		if resp.StatusCode == http.StatusNoContent {
-			return nil, nil
+			return nil
 		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			var result any
-			bodyBytes, err := io.ReadAll(resp.Body)
-			if err != nil {
-				return nil, err
-			}
-			err = json.Unmarshal(bodyBytes, &result)
-			if err != nil {
-				return nil, err
-			}
-			return result, nil
+			return nil
 		} else {
-			return nil, errors.New(resp.Status)
+			return errors.New(resp.Status).As(resp.StatusCode)
 		}
 	}
 }
@@ -2933,7 +1417,7 @@ func (napi *NakamaApi) DeleteFriends(
 	ids []string,
 	usernames []string,
 	options map[string]string,
-) (any, error) {
+) error {
 	// Define the URL path and query parameters
 	urlPath := "/v2/friend"
 	queryParams := url.Values{}
@@ -2951,7 +1435,7 @@ func (napi *NakamaApi) DeleteFriends(
 	// Prepare the HTTP request
 	req, err := http.NewRequest("DELETE", fullUrl, nil)
 	if err != nil {
-		return nil, err
+		return errors.As(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 
@@ -2987,28 +1471,19 @@ func (napi *NakamaApi) DeleteFriends(
 	// Wait for the response or the timeout
 	select {
 	case <-ctx.Done():
-		return nil, errors.New("request timed out")
+		return errors.New("request timed out")
 	case err := <-errorChan:
-		return nil, err
+		return errors.As(err)
 	case resp := <-responseChan:
 		defer resp.Body.Close()
 
 		// Handle HTTP response
 		if resp.StatusCode == http.StatusNoContent {
-			return nil, nil
+			return nil
 		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			var result any
-			bodyBytes, err := io.ReadAll(resp.Body)
-			if err != nil {
-				return nil, err
-			}
-			err = json.Unmarshal(bodyBytes, &result)
-			if err != nil {
-				return nil, err
-			}
-			return result, nil
+			return nil
 		} else {
-			return nil, errors.New(resp.Status)
+			return errors.New(resp.Status)
 		}
 	}
 }
@@ -3108,7 +1583,7 @@ func (napi *NakamaApi) AddFriends(
 	ids []string,
 	usernames []string,
 	options map[string]string,
-) (bool, error) {
+) error {
 	// Define the URL path and query parameters
 	urlPath := "/v2/friend"
 	queryParams := url.Values{}
@@ -3126,7 +1601,7 @@ func (napi *NakamaApi) AddFriends(
 	// Prepare the HTTP request
 	req, err := http.NewRequest("POST", fullUrl, nil)
 	if err != nil {
-		return false, err
+		return errors.As(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 
@@ -3162,29 +1637,19 @@ func (napi *NakamaApi) AddFriends(
 	// Wait for the response or the timeout
 	select {
 	case <-ctx.Done():
-		return false, errors.New("request timed out")
+		return errors.New("request timed out")
 	case err := <-errorChan:
-		return false, err
+		return errors.As(err)
 	case resp := <-responseChan:
 		defer resp.Body.Close()
 
 		// Handle HTTP response
 		if resp.StatusCode == http.StatusNoContent {
-			return false, nil
+			return nil
 		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			var result any
-			bodyBytes, err := io.ReadAll(resp.Body)
-			if err != nil {
-				return false, err
-			}
-			err = json.Unmarshal(bodyBytes, &result)
-			if err != nil {
-				return false, err
-			}
-			// TODO: decode the protocal
-			return result != nil, nil
+			return nil
 		} else {
-			return false, errors.New(resp.Status)
+			return errors.New(resp.Status)
 		}
 	}
 }
@@ -3194,7 +1659,7 @@ func (napi *NakamaApi) BlockFriends(
 	ids []string,
 	usernames []string,
 	options map[string]string,
-) (any, error) {
+) error {
 	// Define the URL path and query parameters
 	urlPath := "/v2/friend/block"
 	queryParams := url.Values{}
@@ -3212,7 +1677,7 @@ func (napi *NakamaApi) BlockFriends(
 	// Prepare the HTTP request
 	req, err := http.NewRequest("POST", fullUrl, nil)
 	if err != nil {
-		return nil, err
+		return errors.As(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 
@@ -3248,28 +1713,19 @@ func (napi *NakamaApi) BlockFriends(
 	// Wait for the response or the timeout
 	select {
 	case <-ctx.Done():
-		return nil, errors.New("request timed out")
+		return errors.New("request timed out")
 	case err := <-errorChan:
-		return nil, err
+		return errors.As(err)
 	case resp := <-responseChan:
 		defer resp.Body.Close()
 
 		// Handle HTTP response
 		if resp.StatusCode == http.StatusNoContent {
-			return nil, nil
+			return nil
 		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			var result any
-			bodyBytes, err := io.ReadAll(resp.Body)
-			if err != nil {
-				return nil, err
-			}
-			err = json.Unmarshal(bodyBytes, &result)
-			if err != nil {
-				return nil, err
-			}
-			return result, nil
+			return nil
 		} else {
-			return nil, errors.New(resp.Status)
+			return errors.New(resp.Status)
 		}
 	}
 }
@@ -3279,7 +1735,7 @@ func (napi *NakamaApi) ImportFacebookFriends(
 	account *api.AccountFacebook,
 	reset *bool,
 	options map[string]string,
-) (any, error) {
+) error {
 	// Define the URL path and query parameters
 	urlPath := "/v2/friend/facebook"
 	queryParams := url.Values{}
@@ -3290,7 +1746,7 @@ func (napi *NakamaApi) ImportFacebookFriends(
 	// Serialize the account object to JSON
 	bodyJson, err := json.Marshal(account)
 	if err != nil {
-		return nil, err
+		return errors.As(err)
 	}
 
 	// Construct the full URL
@@ -3299,7 +1755,7 @@ func (napi *NakamaApi) ImportFacebookFriends(
 	// Prepare the HTTP request
 	req, err := http.NewRequest("POST", fullUrl, bytes.NewBuffer(bodyJson))
 	if err != nil {
-		return nil, err
+		return errors.As(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 
@@ -3335,28 +1791,19 @@ func (napi *NakamaApi) ImportFacebookFriends(
 	// Wait for the response or the timeout
 	select {
 	case <-ctx.Done():
-		return nil, errors.New("request timed out")
+		return errors.New("request timed out")
 	case err := <-errorChan:
-		return nil, err
+		return errors.As(err)
 	case resp := <-responseChan:
 		defer resp.Body.Close()
 
 		// Handle HTTP response
 		if resp.StatusCode == http.StatusNoContent {
-			return nil, nil
+			return nil
 		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			var result any
-			bodyBytes, err := io.ReadAll(resp.Body)
-			if err != nil {
-				return nil, err
-			}
-			err = json.Unmarshal(bodyBytes, &result)
-			if err != nil {
-				return nil, err
-			}
-			return result, nil
+			return nil
 		} else {
-			return nil, errors.New(resp.Status)
+			return errors.New(resp.Status)
 		}
 	}
 }
@@ -3451,7 +1898,7 @@ func (napi *NakamaApi) ImportSteamFriends(
 	account *api.AccountSteam,
 	reset *bool,
 	options map[string]string,
-) (any, error) {
+) error {
 	// Define the URL path and query parameters
 	urlPath := "/v2/friend/steam"
 	queryParams := url.Values{}
@@ -3462,7 +1909,7 @@ func (napi *NakamaApi) ImportSteamFriends(
 	// Serialize the account object to JSON
 	bodyJson, err := json.Marshal(account)
 	if err != nil {
-		return nil, err
+		return errors.As(err)
 	}
 
 	// Construct the full URL
@@ -3471,7 +1918,7 @@ func (napi *NakamaApi) ImportSteamFriends(
 	// Prepare the HTTP request
 	req, err := http.NewRequest("POST", fullUrl, bytes.NewBuffer(bodyJson))
 	if err != nil {
-		return nil, err
+		return errors.As(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 
@@ -3507,28 +1954,19 @@ func (napi *NakamaApi) ImportSteamFriends(
 	// Wait for the response or the timeout
 	select {
 	case <-ctx.Done():
-		return nil, errors.New("request timed out")
+		return errors.New("request timed out")
 	case err := <-errorChan:
-		return nil, err
+		return errors.As(err)
 	case resp := <-responseChan:
 		defer resp.Body.Close()
 
 		// Handle HTTP response
 		if resp.StatusCode == http.StatusNoContent {
-			return nil, nil
+			return nil
 		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			var result any
-			bodyBytes, err := io.ReadAll(resp.Body)
-			if err != nil {
-				return nil, err
-			}
-			err = json.Unmarshal(bodyBytes, &result)
-			if err != nil {
-				return nil, err
-			}
-			return result, nil
+			return nil
 		} else {
-			return nil, errors.New(resp.Status)
+			return errors.New(resp.Status)
 		}
 	}
 }
@@ -3722,9 +2160,9 @@ func (napi *NakamaApi) DeleteGroup(
 	bearerToken *string,
 	groupId *string,
 	options map[string]string,
-) (any, error) {
+) error {
 	if !checkStr(groupId) {
-		return nil, errors.New("'groupId' is a required parameter but is empty")
+		return errors.New("'groupId' is a required parameter but is empty")
 	}
 
 	// Define the URL path and query parameters
@@ -3737,7 +2175,7 @@ func (napi *NakamaApi) DeleteGroup(
 	// Prepare the HTTP request
 	req, err := http.NewRequest("DELETE", fullUrl, nil)
 	if err != nil {
-		return nil, err
+		return errors.As(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 
@@ -3773,45 +2211,36 @@ func (napi *NakamaApi) DeleteGroup(
 	// Wait for the response or the timeout
 	select {
 	case <-ctx.Done():
-		return nil, errors.New("request timed out")
+		return errors.New("request timed out")
 	case err := <-errorChan:
-		return nil, err
+		return errors.As(err)
 	case resp := <-responseChan:
 		defer resp.Body.Close()
 
 		// Handle HTTP response
 		if resp.StatusCode == http.StatusNoContent {
-			return nil, nil
+			return nil
 		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			var result any
-			bodyBytes, err := io.ReadAll(resp.Body)
-			if err != nil {
-				return nil, err
-			}
-			err = json.Unmarshal(bodyBytes, &result)
-			if err != nil {
-				return nil, err
-			}
-			return result, nil
+			return nil
 		} else {
-			return nil, errors.New(resp.Status)
+			return errors.New(resp.Status)
 		}
 	}
 }
 
 // UpdateGroup updates fields in a given group.
 func (napi *NakamaApi) UpdateGroup(
-	bearerToken *string,
+	bearerToken string,
 	groupId *string,
 	body *api.UpdateGroupRequest,
 	options map[string]string,
-) (any, error) {
+) error {
 	// Validate required parameters
 	if checkStr(groupId) {
-		return nil, errors.New("'groupId' is a required parameter but is empty")
+		return errors.New("'groupId' is a required parameter but is empty")
 	}
 	if body == nil {
-		return nil, errors.New("'body' is a required parameter but is empty")
+		return errors.New("'body' is a required parameter but is empty")
 	}
 
 	// Define the URL path and query parameters
@@ -3821,7 +2250,7 @@ func (napi *NakamaApi) UpdateGroup(
 	// Serialize the body to JSON
 	bodyJson, err := json.Marshal(body)
 	if err != nil {
-		return nil, err
+		return errors.As(err)
 	}
 
 	// Construct the full URL
@@ -3830,66 +2259,16 @@ func (napi *NakamaApi) UpdateGroup(
 	// Prepare the HTTP request
 	req, err := http.NewRequest("PUT", fullUrl, bytes.NewBuffer(bodyJson))
 	if err != nil {
-		return nil, err
+		return errors.As(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	// Set Bearer Token authorization header
-	if checkStr(bearerToken) {
-		req.Header.Set("Authorization", "Bearer "+*bearerToken)
+	if err := napi.doReq(bearerToken, req, options, nil); err != nil {
+		return errors.As(err)
 	}
 
-	// Apply additional custom headers or options if needed
-	for key, value := range options {
-		req.Header.Set(key, value)
-	}
+	return nil
 
-	// Create a context with a timeout
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(napi.TimeoutMs)*time.Millisecond)
-	defer cancel()
-
-	// Make the HTTP request
-	client := &http.Client{}
-	responseChan := make(chan *http.Response, 1)
-	errorChan := make(chan error, 1)
-
-	// Run the HTTP request in a goroutine
-	go func() {
-		resp, err := client.Do(req.WithContext(ctx))
-		if err != nil {
-			errorChan <- err
-			return
-		}
-		responseChan <- resp
-	}()
-
-	// Wait for the response or the timeout
-	select {
-	case <-ctx.Done():
-		return nil, errors.New("request timed out")
-	case err := <-errorChan:
-		return nil, err
-	case resp := <-responseChan:
-		defer resp.Body.Close()
-
-		// Handle HTTP response
-		if resp.StatusCode == http.StatusNoContent {
-			return nil, nil
-		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			var result any
-			bodyBytes, err := io.ReadAll(resp.Body)
-			if err != nil {
-				return nil, err
-			}
-			err = json.Unmarshal(bodyBytes, &result)
-			if err != nil {
-				return nil, err
-			}
-			return result, nil
-		} else {
-			return nil, errors.New(resp.Status)
-		}
-	}
 }
 
 // AddGroupUsers adds users to a group.
@@ -3898,11 +2277,11 @@ func (napi *NakamaApi) AddGroupUsers(
 	groupId *string,
 	userIds []string,
 	options map[string]string,
-) (bool, error) {
+) error {
 
 	// Check required parameters
 	if !checkStr(groupId) {
-		return false, errors.New("'groupId' is a required parameter but is empty")
+		return errors.New("'groupId' is a required parameter but is empty")
 	}
 
 	// Define the URL path and query parameters
@@ -3918,7 +2297,7 @@ func (napi *NakamaApi) AddGroupUsers(
 	// Prepare the HTTP request
 	req, err := http.NewRequest("POST", fullUrl, nil)
 	if err != nil {
-		return false, err
+		return errors.As(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 
@@ -3954,28 +2333,19 @@ func (napi *NakamaApi) AddGroupUsers(
 	// Wait for the response or the timeout
 	select {
 	case <-ctx.Done():
-		return false, errors.New("request timed out")
+		return errors.New("request timed out")
 	case err := <-errorChan:
-		return false, err
+		return errors.As(err)
 	case resp := <-responseChan:
 		defer resp.Body.Close()
 
 		// Handle HTTP response
 		if resp.StatusCode == http.StatusNoContent {
-			return false, nil
+			return nil
 		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			var result any
-			bodyBytes, err := io.ReadAll(resp.Body)
-			if err != nil {
-				return false, err
-			}
-			err = json.Unmarshal(bodyBytes, &result)
-			if err != nil {
-				return false, err
-			}
-			return result != nil, nil
+			return nil
 		} else {
-			return false, errors.New(resp.Status)
+			return errors.New(resp.Status)
 		}
 	}
 }
@@ -3986,10 +2356,10 @@ func (napi *NakamaApi) BanGroupUsers(
 	groupId *string,
 	userIds []string,
 	options map[string]string,
-) (any, error) {
+) error {
 	// Check required parameters
 	if !checkStr(groupId) {
-		return nil, errors.New("'groupId' is a required parameter but is empty")
+		return errors.New("'groupId' is a required parameter but is empty")
 	}
 
 	// Define the URL path and query parameters
@@ -4005,7 +2375,7 @@ func (napi *NakamaApi) BanGroupUsers(
 	// Prepare the HTTP request
 	req, err := http.NewRequest("POST", fullUrl, nil)
 	if err != nil {
-		return nil, err
+		return errors.As(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 
@@ -4041,28 +2411,19 @@ func (napi *NakamaApi) BanGroupUsers(
 	// Wait for the response or the timeout
 	select {
 	case <-ctx.Done():
-		return nil, errors.New("request timed out")
+		return errors.New("request timed out")
 	case err := <-errorChan:
-		return nil, err
+		return errors.As(err)
 	case resp := <-responseChan:
 		defer resp.Body.Close()
 
 		// Handle HTTP response
 		if resp.StatusCode == http.StatusNoContent {
-			return nil, nil
+			return nil
 		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			var result any
-			bodyBytes, err := io.ReadAll(resp.Body)
-			if err != nil {
-				return nil, err
-			}
-			err = json.Unmarshal(bodyBytes, &result)
-			if err != nil {
-				return nil, err
-			}
-			return result, nil
+			return nil
 		} else {
-			return nil, errors.New(resp.Status)
+			return errors.New(resp.Status)
 		}
 	}
 }
@@ -4073,10 +2434,10 @@ func (napi *NakamaApi) DemoteGroupUsers(
 	groupId *string,
 	userIds []string,
 	options map[string]string,
-) (any, error) {
+) error {
 	// Check required parameters
 	if groupId == nil || *groupId == "" {
-		return nil, errors.New("'groupId' is a required parameter but is empty")
+		return errors.New("'groupId' is a required parameter but is empty")
 	}
 
 	// Define the URL path and query parameters
@@ -4092,7 +2453,7 @@ func (napi *NakamaApi) DemoteGroupUsers(
 	// Prepare the HTTP request
 	req, err := http.NewRequest("POST", fullUrl, nil)
 	if err != nil {
-		return nil, err
+		return errors.As(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 
@@ -4128,28 +2489,19 @@ func (napi *NakamaApi) DemoteGroupUsers(
 	// Wait for the response or the timeout
 	select {
 	case <-ctx.Done():
-		return nil, errors.New("request timed out")
+		return errors.New("request timed out")
 	case err := <-errorChan:
-		return nil, err
+		return errors.As(err)
 	case resp := <-responseChan:
 		defer resp.Body.Close()
 
 		// Handle HTTP response
 		if resp.StatusCode == http.StatusNoContent {
-			return nil, nil
+			return nil
 		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			var result any
-			bodyBytes, err := io.ReadAll(resp.Body)
-			if err != nil {
-				return nil, err
-			}
-			err = json.Unmarshal(bodyBytes, &result)
-			if err != nil {
-				return nil, err
-			}
-			return result, nil
+			return nil
 		} else {
-			return nil, errors.New(resp.Status)
+			return errors.New(resp.Status)
 		}
 	}
 }
@@ -4159,9 +2511,9 @@ func (napi *NakamaApi) JoinGroup(
 	bearerToken *string,
 	groupId *string,
 	options map[string]string,
-) (any, error) {
+) error {
 	if !checkStr(groupId) {
-		return nil, errors.New("'groupId' is a required parameter but is empty")
+		return errors.New("'groupId' is a required parameter but is empty")
 	}
 
 	// Define the URL path and query parameters
@@ -4174,7 +2526,7 @@ func (napi *NakamaApi) JoinGroup(
 	// Prepare the HTTP request
 	req, err := http.NewRequest("POST", fullUrl, nil)
 	if err != nil {
-		return nil, err
+		return errors.As(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 
@@ -4210,28 +2562,19 @@ func (napi *NakamaApi) JoinGroup(
 	// Wait for the response or the timeout
 	select {
 	case <-ctx.Done():
-		return nil, errors.New("request timed out")
+		return errors.New("request timed out")
 	case err := <-errorChan:
-		return nil, err
+		return errors.As(err)
 	case resp := <-responseChan:
 		defer resp.Body.Close()
 
 		// Handle HTTP response
 		if resp.StatusCode == http.StatusNoContent {
-			return nil, nil
+			return nil
 		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			var result any
-			bodyBytes, err := io.ReadAll(resp.Body)
-			if err != nil {
-				return nil, err
-			}
-			err = json.Unmarshal(bodyBytes, &result)
-			if err != nil {
-				return nil, err
-			}
-			return result, nil
+			return nil
 		} else {
-			return nil, errors.New(resp.Status)
+			return errors.New(resp.Status)
 		}
 	}
 }
@@ -4242,11 +2585,11 @@ func (napi *NakamaApi) KickGroupUsers(
 	groupId *string,
 	userIds []string,
 	options map[string]string,
-) (any, error) {
+) error {
 
 	// Validate required parameter
 	if !checkStr(groupId) {
-		return nil, errors.New("'groupId' is a required parameter but is empty")
+		return errors.New("'groupId' is a required parameter but is empty")
 	}
 
 	// Define the URL path and query parameters
@@ -4262,7 +2605,7 @@ func (napi *NakamaApi) KickGroupUsers(
 	// Prepare the HTTP request
 	req, err := http.NewRequest("POST", fullUrl, nil)
 	if err != nil {
-		return nil, err
+		return errors.As(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 
@@ -4298,28 +2641,19 @@ func (napi *NakamaApi) KickGroupUsers(
 	// Wait for the response or the timeout
 	select {
 	case <-ctx.Done():
-		return nil, errors.New("request timed out")
+		return errors.New("request timed out")
 	case err := <-errorChan:
-		return nil, err
+		return errors.As(err)
 	case resp := <-responseChan:
 		defer resp.Body.Close()
 
 		// Handle HTTP response
 		if resp.StatusCode == http.StatusNoContent {
-			return nil, nil
+			return nil
 		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			var result any
-			bodyBytes, err := io.ReadAll(resp.Body)
-			if err != nil {
-				return nil, err
-			}
-			err = json.Unmarshal(bodyBytes, &result)
-			if err != nil {
-				return nil, err
-			}
-			return result, nil
+			return nil
 		} else {
-			return nil, errors.New(resp.Status)
+			return errors.New(resp.Status)
 		}
 	}
 }
@@ -4329,10 +2663,10 @@ func (napi *NakamaApi) LeaveGroup(
 	bearerToken *string,
 	groupId *string,
 	options map[string]string,
-) (any, error) {
+) error {
 	// Validate the required parameter
 	if checkStr(groupId) {
-		return nil, errors.New("'groupId' is a required parameter but is empty")
+		return errors.New("'groupId' is a required parameter but is empty")
 	}
 
 	// Define the URL path and query parameters
@@ -4345,7 +2679,7 @@ func (napi *NakamaApi) LeaveGroup(
 	// Prepare the HTTP request
 	req, err := http.NewRequest("POST", fullUrl, nil)
 	if err != nil {
-		return nil, err
+		return errors.As(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 
@@ -4381,46 +2715,37 @@ func (napi *NakamaApi) LeaveGroup(
 	// Wait for the response or the timeout
 	select {
 	case <-ctx.Done():
-		return nil, errors.New("request timed out")
+		return errors.New("request timed out")
 	case err := <-errorChan:
-		return nil, err
+		return errors.As(err)
 	case resp := <-responseChan:
 		defer resp.Body.Close()
 
 		// Handle HTTP response
 		if resp.StatusCode == http.StatusNoContent {
-			return nil, nil
+			return nil
 		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			var result any
-			bodyBytes, err := io.ReadAll(resp.Body)
-			if err != nil {
-				return nil, err
-			}
-			err = json.Unmarshal(bodyBytes, &result)
-			if err != nil {
-				return nil, err
-			}
-			return result, nil
+			return nil
 		} else {
-			return nil, errors.New(resp.Status)
+			return errors.New(resp.Status)
 		}
 	}
 }
 
 // PromoteGroupUsers promotes a set of users in a group to the next role up.
 func (napi *NakamaApi) PromoteGroupUsers(
-	bearerToken *string,
-	groupId *string,
+	bearerToken string,
+	groupId string,
 	userIds []string,
 	options map[string]string,
-) (any, error) {
+) error {
 	// Validate required parameter
-	if checkStr(groupId) {
-		return nil, errors.New("'groupId' is a required parameter but is empty")
+	if checkStr(&groupId) {
+		return errors.New("'groupId' is a required parameter but is empty")
 	}
 
 	// Define the URL path and query parameters
-	urlPath := strings.Replace("/v2/group/{groupId}/promote", "{groupId}", url.QueryEscape(*groupId), 1)
+	urlPath := strings.Replace("/v2/group/{groupId}/promote", "{groupId}", url.QueryEscape(groupId), 1)
 	queryParams := url.Values{}
 	for _, userId := range userIds {
 		queryParams.Add("user_ids", userId)
@@ -4432,66 +2757,16 @@ func (napi *NakamaApi) PromoteGroupUsers(
 	// Prepare the HTTP request
 	req, err := http.NewRequest("POST", fullUrl, nil)
 	if err != nil {
-		return nil, err
+		return errors.As(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	// Set Bearer Token authorization header
-	if checkStr(bearerToken) {
-		req.Header.Set("Authorization", "Bearer "+*bearerToken)
+	if err := napi.doReq(bearerToken, req, options, nil); err != nil {
+		return errors.As(err)
 	}
 
-	// Apply additional custom headers or options if needed
-	for key, value := range options {
-		req.Header.Set(key, value)
-	}
+	return nil
 
-	// Create a context with a timeout
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(napi.TimeoutMs)*time.Millisecond)
-	defer cancel()
-
-	// Make the HTTP request
-	client := &http.Client{}
-	responseChan := make(chan *http.Response, 1)
-	errorChan := make(chan error, 1)
-
-	// Run the HTTP request in a goroutine
-	go func() {
-		resp, err := client.Do(req.WithContext(ctx))
-		if err != nil {
-			errorChan <- err
-			return
-		}
-		responseChan <- resp
-	}()
-
-	// Wait for the response or the timeout
-	select {
-	case <-ctx.Done():
-		return nil, errors.New("request timed out")
-	case err := <-errorChan:
-		return nil, err
-	case resp := <-responseChan:
-		defer resp.Body.Close()
-
-		// Handle HTTP response
-		if resp.StatusCode == http.StatusNoContent {
-			return nil, nil
-		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			var result any
-			bodyBytes, err := io.ReadAll(resp.Body)
-			if err != nil {
-				return nil, err
-			}
-			err = json.Unmarshal(bodyBytes, &result)
-			if err != nil {
-				return nil, err
-			}
-			return result, nil
-		} else {
-			return nil, errors.New(resp.Status)
-		}
-	}
 }
 
 // ListGroupUsers lists all users that are part of a group.
@@ -5214,11 +3489,11 @@ func (napi *NakamaApi) GetSubscription(
 	bearerToken *string,
 	productId *string,
 	options map[string]string,
-) (api.ValidatedSubscription, error) {
+) (*api.ValidatedSubscription, error) {
 
 	// Validate the required parameter
 	if productId == nil || *productId == "" {
-		return api.ValidatedSubscription{}, errors.New("'productId' is a required parameter but is null or empty.")
+		return nil, errors.New("'productId' is a required parameter but is null or empty.")
 	}
 
 	// Define the URL path
@@ -5231,7 +3506,7 @@ func (napi *NakamaApi) GetSubscription(
 	// Prepare the HTTP request
 	req, err := http.NewRequest("GET", fullUrl, nil)
 	if err != nil {
-		return api.ValidatedSubscription{}, err
+		return nil, err
 	}
 
 	// Set Bearer Token authorization header
@@ -5266,28 +3541,28 @@ func (napi *NakamaApi) GetSubscription(
 	// Wait for the response or the timeout
 	select {
 	case <-ctx.Done():
-		return api.ValidatedSubscription{}, errors.New("request timed out")
+		return nil, errors.New("request timed out")
 	case err := <-errorChan:
-		return api.ValidatedSubscription{}, err
+		return nil, errors.As(err)
 	case resp := <-responseChan:
 		defer resp.Body.Close()
 
 		// Handle HTTP response
 		if resp.StatusCode == http.StatusNoContent {
-			return api.ValidatedSubscription{}, nil
+			return nil, ErrNoContent.As(resp.StatusCode)
 		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 			var result api.ValidatedSubscription
 			bodyBytes, err := io.ReadAll(resp.Body)
 			if err != nil {
-				return api.ValidatedSubscription{}, err
+				return nil, errors.As(err)
 			}
-			err = json.Unmarshal(bodyBytes, &result)
+			err = protojson.Unmarshal(bodyBytes, &result)
 			if err != nil {
-				return api.ValidatedSubscription{}, err
+				return nil, errors.As(err)
 			}
-			return result, nil
+			return &result, nil
 		} else {
-			return api.ValidatedSubscription{}, errors.New(resp.Status)
+			return nil, errors.New(resp.Status)
 		}
 	}
 }
@@ -5458,7 +3733,8 @@ func (napi *NakamaApi) ListLeaderboardRecords(
 			return nil, ErrNoContent.As(resp.StatusCode)
 		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 			result := &api.LeaderboardRecordList{}
-			err = json.Unmarshal(bodyBytes, result)
+			fmt.Println(string(bodyBytes))
+			err = protojson.Unmarshal(bodyBytes, result)
 			if err != nil {
 				return nil, errors.As(err)
 			}
@@ -5471,14 +3747,14 @@ func (napi *NakamaApi) ListLeaderboardRecords(
 
 // WriteLeaderboardRecord writes a record to a leaderboard.
 func (napi *NakamaApi) WriteLeaderboardRecord(
-	bearerToken *string,
-	leaderboardId *string,
+	bearerToken string,
+	leaderboardId string,
 	record *api.WriteLeaderboardRecordRequest_LeaderboardRecordWrite,
 	options map[string]string,
 ) (*api.LeaderboardRecord, error) {
 
 	// Validate the required parameters
-	if !checkStr(leaderboardId) {
+	if !checkStr(&leaderboardId) {
 		return nil, errors.New("'leaderboardId' is a required parameter but is null or empty.")
 	}
 	if record == nil {
@@ -5486,7 +3762,7 @@ func (napi *NakamaApi) WriteLeaderboardRecord(
 	}
 
 	// Define the URL path
-	urlPath := fmt.Sprintf("/v2/leaderboard/%s", url.QueryEscape(*leaderboardId))
+	urlPath := fmt.Sprintf("/v2/leaderboard/%s", url.QueryEscape(leaderboardId))
 	queryParams := url.Values{}
 
 	// Convert the record to JSON
@@ -5507,101 +3783,49 @@ func (napi *NakamaApi) WriteLeaderboardRecord(
 	// Set the Content-Type header
 	req.Header.Set("Content-Type", "application/json")
 
-	// Set Bearer Token authorization header
-	if checkStr(bearerToken) {
-		req.Header.Set("Authorization", "Bearer "+*bearerToken)
-	}
-
-	// Apply additional custom headers or options if needed
-	for key, value := range options {
-		req.Header.Set(key, value)
-	}
-
-	// Create a context with a timeout
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(napi.TimeoutMs)*time.Millisecond)
-	defer cancel()
-
-	// Make the HTTP request
-	client := &http.Client{}
-	responseChan := make(chan *http.Response, 1)
-	errorChan := make(chan error, 1)
-
-	// Run the HTTP request in a goroutine
-	go func() {
-		resp, err := client.Do(req.WithContext(ctx))
-		if err != nil {
-			errorChan <- err
-			return
-		}
-		responseChan <- resp
-	}()
-
-	// Wait for the response or the timeout
-	select {
-	case <-ctx.Done():
-		return nil, errors.New("request timed out")
-	case err := <-errorChan:
+	result := &api.LeaderboardRecord{}
+	if err := napi.doReq(bearerToken, req, options, result); err != nil {
 		return nil, errors.As(err)
-	case resp := <-responseChan:
-		defer resp.Body.Close()
-
-		// Handle HTTP response
-		if resp.StatusCode == http.StatusNoContent {
-			return nil, ErrNoContent.As(resp.StatusCode)
-		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			result := &api.LeaderboardRecord{}
-			bodyBytes, err := io.ReadAll(resp.Body)
-			if err != nil {
-				return nil, errors.As(err)
-			}
-			err = json.Unmarshal(bodyBytes, result)
-			if err != nil {
-				return nil, errors.As(err)
-			}
-			return result, nil
-		} else {
-			bodyBytes, _ := io.ReadAll(resp.Body)
-			return nil, errors.New("unexpected response").As(string(bodyBytes))
-		}
 	}
+	return result, nil
 }
 
 // ListLeaderboardRecordsAroundOwner lists leaderboard records that belong to a user.
 func (napi *NakamaApi) ListLeaderboardRecordsAroundOwner(
-	bearerToken *string,
-	leaderboardId *string,
-	ownerId *string,
-	limit *int,
-	expiry *string,
-	cursor *string,
+	bearerToken string,
+	leaderboardId string,
+	ownerId string,
+	limit int,
+	expiry string,
+	cursor string,
 	options map[string]string,
 ) (*api.LeaderboardRecordList, error) {
 
 	// Validate the required parameters
-	if !checkStr(leaderboardId) {
+	if !checkStr(&leaderboardId) {
 		return nil, errors.New("'leaderboardId' is a required parameter but is null or empty.")
 	}
-	if !checkStr(ownerId) {
+	if !checkStr(&ownerId) {
 		return nil, errors.New("'ownerId' is a required parameter but is null or empty.")
 	}
 
 	// Define the URL path
 	urlPath := fmt.Sprintf(
 		"/v2/leaderboard/%s/owner/%s",
-		url.QueryEscape(*leaderboardId),
-		url.QueryEscape(*ownerId),
+		url.QueryEscape(leaderboardId),
+		url.QueryEscape(ownerId),
 	)
 	queryParams := url.Values{}
 
 	// Add optional parameters to the query
-	if limit != nil {
-		queryParams.Set("limit", fmt.Sprintf("%d", *limit))
+	if limit > 0 {
+		queryParams.Set("limit", fmt.Sprintf("%d", limit))
 	}
-	if expiry != nil {
-		queryParams.Set("expiry", *expiry)
+	if expiry != "" {
+		queryParams.Set("expiry", expiry)
 	}
-	if cursor != nil {
-		queryParams.Set("cursor", *cursor)
+	if cursor != "" {
+		queryParams.Set("cursor", cursor)
 	}
 
 	// Construct the full URL
@@ -5613,73 +3837,22 @@ func (napi *NakamaApi) ListLeaderboardRecordsAroundOwner(
 		return nil, errors.As(err)
 	}
 
-	// Set Bearer Token authorization header
-	if checkStr(bearerToken) {
-		req.Header.Set("Authorization", "Bearer "+*bearerToken)
-	}
-
-	// Apply additional custom headers or options if needed
-	for key, value := range options {
-		req.Header.Set(key, value)
-	}
-
-	// Create a context with a timeout
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(napi.TimeoutMs)*time.Millisecond)
-	defer cancel()
-
-	// Make the HTTP request
-	client := &http.Client{}
-	responseChan := make(chan *http.Response, 1)
-	errorChan := make(chan error, 1)
-
-	// Run the HTTP request in a goroutine
-	go func() {
-		resp, err := client.Do(req.WithContext(ctx))
-		if err != nil {
-			errorChan <- err
-			return
-		}
-		responseChan <- resp
-	}()
-
-	// Wait for the response or the timeout
-	select {
-	case <-ctx.Done():
-		return nil, errors.New("request timed out")
-	case err := <-errorChan:
+	result := &api.LeaderboardRecordList{}
+	if err := napi.doReq(bearerToken, req, options, result); err != nil {
 		return nil, errors.As(err)
-	case resp := <-responseChan:
-		defer resp.Body.Close()
-
-		// Handle HTTP response
-		if resp.StatusCode == http.StatusNoContent {
-			return nil, ErrNoContent.As(resp.StatusCode)
-		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			result := &api.LeaderboardRecordList{}
-			bodyBytes, err := io.ReadAll(resp.Body)
-			if err != nil {
-				return nil, errors.As(err)
-			}
-			err = json.Unmarshal(bodyBytes, result)
-			if err != nil {
-				return nil, errors.As(err)
-			}
-			return result, nil
-		} else {
-			bodyBytes, _ := io.ReadAll(resp.Body)
-			return nil, errors.New("unexpected response").As(string(bodyBytes))
-		}
 	}
+
+	return result, nil
 }
 
 func (napi *NakamaApi) ListMatches(
-	bearerToken *string,
-	limit *int,
+	bearerToken string,
+	limit int,
 	authoritative *bool,
-	label *string,
-	minSize *int,
-	maxSize *int,
-	query *string,
+	label string,
+	minSize int,
+	maxSize int,
+	query string,
 	options map[string]string,
 ) (*api.MatchList, error) {
 
@@ -5688,23 +3861,23 @@ func (napi *NakamaApi) ListMatches(
 	queryParams := url.Values{}
 
 	// Add optional parameters to the query
-	if limit != nil {
-		queryParams.Set("limit", fmt.Sprintf("%d", *limit))
+	if limit > 0 {
+		queryParams.Set("limit", fmt.Sprintf("%d", limit))
 	}
 	if authoritative != nil {
 		queryParams.Set("authoritative", fmt.Sprintf("%t", *authoritative))
 	}
-	if label != nil {
-		queryParams.Set("label", *label)
+	if label != "" {
+		queryParams.Set("label", label)
 	}
-	if minSize != nil {
-		queryParams.Set("min_size", fmt.Sprintf("%d", *minSize))
+	if minSize > 0 {
+		queryParams.Set("min_size", fmt.Sprintf("%d", minSize))
 	}
-	if maxSize != nil {
-		queryParams.Set("max_size", fmt.Sprintf("%d", *maxSize))
+	if maxSize > 0 {
+		queryParams.Set("max_size", fmt.Sprintf("%d", maxSize))
 	}
-	if query != nil {
-		queryParams.Set("query", *query)
+	if query != "" {
+		queryParams.Set("query", query)
 	}
 
 	// Construct the full URL
@@ -5716,70 +3889,19 @@ func (napi *NakamaApi) ListMatches(
 		return nil, err
 	}
 
-	// Set Bearer Token authorization header
-	if checkStr(bearerToken) {
-		req.Header.Set("Authorization", "Bearer "+*bearerToken)
+	var result api.MatchList
+	if err := napi.doReq(bearerToken, req, options, &result); err != nil {
+		return nil, errors.As(err)
 	}
 
-	// Apply additional custom headers or options if needed
-	for key, value := range options {
-		req.Header.Set(key, value)
-	}
-
-	// Create a context with a timeout
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(napi.TimeoutMs)*time.Millisecond)
-	defer cancel()
-
-	// Make the HTTP request
-	client := &http.Client{}
-	responseChan := make(chan *http.Response, 1)
-	errorChan := make(chan error, 1)
-
-	// Run the HTTP request in a goroutine
-	go func() {
-		resp, err := client.Do(req.WithContext(ctx))
-		if err != nil {
-			errorChan <- err
-			return
-		}
-		responseChan <- resp
-	}()
-
-	// Wait for the response or the timeout
-	select {
-	case <-ctx.Done():
-		return nil, errors.New("request timed out")
-	case err := <-errorChan:
-		return nil, err
-	case resp := <-responseChan:
-		defer resp.Body.Close()
-
-		// Handle HTTP response
-		if resp.StatusCode == http.StatusNoContent {
-			return &api.MatchList{}, nil
-		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			var result api.MatchList
-			bodyBytes, err := io.ReadAll(resp.Body)
-			if err != nil {
-				return nil, err
-			}
-			err = json.Unmarshal(bodyBytes, &result)
-			if err != nil {
-				return nil, err
-			}
-			return &result, nil
-		} else {
-			bodyBytes, _ := io.ReadAll(resp.Body)
-			return nil, fmt.Errorf("unexpected response: %s", string(bodyBytes))
-		}
-	}
+	return &result, nil
 }
 
 func (napi *NakamaApi) DeleteNotifications(
-	bearerToken *string,
+	bearerToken string,
 	ids []string,
 	options map[string]string,
-) (any, error) {
+) error {
 
 	// Define the URL path
 	urlPath := "/v2/notification"
@@ -5799,72 +3921,18 @@ func (napi *NakamaApi) DeleteNotifications(
 	// Prepare the HTTP request
 	req, err := http.NewRequest("DELETE", fullUrl, strings.NewReader(bodyJson))
 	if err != nil {
-		return nil, errors.As(err)
+		return errors.As(err)
 	}
-
-	// Set Bearer Token authorization header
-	if checkStr(bearerToken) {
-		req.Header.Set("Authorization", "Bearer "+*bearerToken)
+	if err := napi.doReq(bearerToken, req, options, nil); err != nil {
+		return errors.As(err)
 	}
-
-	// Apply additional custom headers or options if needed
-	for key, value := range options {
-		req.Header.Set(key, value)
-	}
-
-	// Create a context with a timeout
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(napi.TimeoutMs)*time.Millisecond)
-	defer cancel()
-
-	// Make the HTTP request
-	client := &http.Client{}
-	responseChan := make(chan *http.Response, 1)
-	errorChan := make(chan error, 1)
-
-	// Run the HTTP request in a goroutine
-	go func() {
-		resp, err := client.Do(req.WithContext(ctx))
-		if err != nil {
-			errorChan <- errors.As(err)
-			return
-		}
-		responseChan <- resp
-	}()
-
-	// Wait for the response or the timeout
-	select {
-	case <-ctx.Done():
-		return nil, errors.New("request timed out")
-	case err := <-errorChan:
-		return nil, errors.As(err)
-	case resp := <-responseChan:
-		defer resp.Body.Close()
-
-		// Handle HTTP response
-		if resp.StatusCode == http.StatusNoContent {
-			return nil, ErrNoContent.As(resp.StatusCode)
-		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			result := map[string]any{} // TOOD: more detail?
-			bodyBytes, err := io.ReadAll(resp.Body)
-			if err != nil {
-				return nil, errors.As(err)
-			}
-			err = json.Unmarshal(bodyBytes, &result)
-			if err != nil {
-				return nil, errors.As(err)
-			}
-			return result, nil
-		} else {
-			bodyBytes, _ := io.ReadAll(resp.Body)
-			return nil, errors.New("unexpected response").As(string(bodyBytes))
-		}
-	}
+	return nil
 }
 
 func (napi *NakamaApi) ListNotifications(
-	bearerToken *string,
-	limit *int,
-	cacheableCursor *string,
+	bearerToken string,
+	limit int,
+	cacheableCursor string,
 	options map[string]string,
 ) (*api.NotificationList, error) {
 
@@ -5873,11 +3941,11 @@ func (napi *NakamaApi) ListNotifications(
 	queryParams := url.Values{}
 
 	// Add query parameters
-	if limit != nil {
-		queryParams.Set("limit", fmt.Sprintf("%d", *limit))
+	if limit > 0 {
+		queryParams.Set("limit", fmt.Sprintf("%d", limit))
 	}
-	if cacheableCursor != nil {
-		queryParams.Set("cacheable_cursor", *cacheableCursor)
+	if cacheableCursor != "" {
+		queryParams.Set("cacheable_cursor", cacheableCursor)
 	}
 
 	// Construct the full URL
@@ -5889,88 +3957,37 @@ func (napi *NakamaApi) ListNotifications(
 		return nil, errors.As(err)
 	}
 
-	// Set Bearer Token authorization header
-	if checkStr(bearerToken) {
-		req.Header.Set("Authorization", "Bearer "+*bearerToken)
+	result := &api.NotificationList{}
+	if err := napi.doReq(bearerToken, req, options, result); err != nil {
+		return nil, errors.As(err)
 	}
 
-	// Apply additional custom headers or options if needed
-	for key, value := range options {
-		req.Header.Set(key, value)
-	}
-
-	// Create a context with a timeout
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(napi.TimeoutMs)*time.Millisecond)
-	defer cancel()
-
-	// Make the HTTP request
-	client := &http.Client{}
-	responseChan := make(chan *http.Response, 1)
-	errorChan := make(chan error, 1)
-
-	// Run the HTTP request in a goroutine
-	go func() {
-		resp, err := client.Do(req.WithContext(ctx))
-		if err != nil {
-			errorChan <- errors.As(err)
-			return
-		}
-		responseChan <- resp
-	}()
-
-	// Wait for the response or the timeout
-	select {
-	case <-ctx.Done():
-		return nil, errors.New("request timed out")
-	case err := <-errorChan:
-		return nil, err
-	case resp := <-responseChan:
-		defer resp.Body.Close()
-
-		// Handle HTTP response
-		if resp.StatusCode == http.StatusNoContent {
-			return nil, ErrNoContent.As(resp.StatusCode)
-		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			result := &api.NotificationList{}
-			bodyBytes, err := io.ReadAll(resp.Body)
-			if err != nil {
-				return nil, errors.As(err)
-			}
-			err = json.Unmarshal(bodyBytes, result)
-			if err != nil {
-				return nil, errors.As(err)
-			}
-			return result, nil
-		} else {
-			bodyBytes, _ := io.ReadAll(resp.Body)
-			return nil, errors.New("unexpected response").As(string(bodyBytes))
-		}
-	}
+	return result, nil
 }
 
 func (napi *NakamaApi) RpcFunc2(
-	bearerToken *string,
-	id *string,
-	payload *string,
-	httpKey *string,
+	bearerToken string,
+	id string,
+	payload string,
+	httpKey string,
 	options map[string]string,
 ) (*api.Rpc, error) {
 
 	// Validate the required parameter 'id'
-	if !checkStr(id) {
+	if !checkStr(&id) {
 		return nil, errors.New("'id' is a required parameter but is empty")
 	}
 
 	// Define the URL path
-	urlPath := fmt.Sprintf("/v2/rpc/%s", url.QueryEscape(*id))
+	urlPath := fmt.Sprintf("/v2/rpc/%s", url.QueryEscape(id))
 
 	// Add query parameters
 	queryParams := url.Values{}
-	if payload != nil {
-		queryParams.Set("payload", *payload)
+	if payload != "" {
+		queryParams.Set("payload", payload)
 	}
-	if httpKey != nil {
-		queryParams.Set("http_key", *httpKey)
+	if httpKey != "" {
+		queryParams.Set("http_key", httpKey)
 	}
 
 	// Convert the body to JSON (if necessary, can be modified)
@@ -5985,86 +4002,35 @@ func (napi *NakamaApi) RpcFunc2(
 		return nil, errors.As(err)
 	}
 
-	// Set Bearer Token authorization header if provided
-	if checkStr(bearerToken) {
-		req.Header.Set("Authorization", "Bearer "+*bearerToken)
-	}
-
-	// Apply additional custom headers or options if provided
-	for key, value := range options {
-		req.Header.Set(key, value)
-	}
-
-	// Create a context with a timeout
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(napi.TimeoutMs)*time.Millisecond)
-	defer cancel()
-
-	// Make the HTTP request
-	client := &http.Client{}
-	responseChan := make(chan *http.Response, 1)
-	errorChan := make(chan error, 1)
-
-	// Run the HTTP request in a goroutine
-	go func() {
-		resp, err := client.Do(req.WithContext(ctx))
-		if err != nil {
-			errorChan <- errors.As(err)
-			return
-		}
-		responseChan <- resp
-	}()
-
-	// Wait for the response or the timeout
-	select {
-	case <-ctx.Done():
-		return nil, errors.New("request timed out")
-	case err := <-errorChan:
+	result := &api.Rpc{}
+	if err := napi.doReq(bearerToken, req, options, result); err != nil {
 		return nil, errors.As(err)
-	case resp := <-responseChan:
-		defer resp.Body.Close()
-
-		// Handle HTTP response
-		if resp.StatusCode == http.StatusNoContent {
-			return nil, ErrNoContent.As(resp.StatusCode)
-		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			result := &api.Rpc{}
-			bodyBytes, err := io.ReadAll(resp.Body)
-			if err != nil {
-				return nil, errors.As(err)
-			}
-			if err := json.Unmarshal(bodyBytes, &result); err != nil {
-				return nil, errors.As(err)
-			}
-			return result, nil
-		} else {
-			bodyBytes, _ := io.ReadAll(resp.Body)
-			return nil, errors.New("unexpected response").As(string(bodyBytes))
-		}
 	}
+	return result, nil
 }
 
 func (napi *NakamaApi) RpcFunc(
-	bearerToken *string,
-	id *string,
-	body *string,
-	httpKey *string,
+	bearerToken string,
+	id string,
+	body string,
+	httpKey string,
 	options map[string]string,
 ) (*api.Rpc, error) {
 	// Validate the required parameters 'id' and 'body'
-	if !checkStr(id) {
+	if !checkStr(&id) {
 		return nil, errors.New("'id' is a required parameter but is empty")
 	}
-	if !checkStr(body) {
+	if !checkStr(&body) {
 		return nil, errors.New("'body' is a required parameter but is empty")
 	}
 
 	// Define the URL path
-	urlPath := fmt.Sprintf("/v2/rpc/%s", url.QueryEscape(*id))
+	urlPath := fmt.Sprintf("/v2/rpc/%s", url.QueryEscape(id))
 
 	// Add query parameters
 	queryParams := url.Values{}
-	if httpKey != nil {
-		queryParams.Set("http_key", *httpKey)
+	if httpKey != "" {
+		queryParams.Set("http_key", httpKey)
 	}
 
 	// Convert the body to JSON
@@ -6082,73 +4048,22 @@ func (napi *NakamaApi) RpcFunc(
 		return nil, errors.As(err)
 	}
 
-	// Set Bearer Token authorization header if provided
-	if checkStr(bearerToken) {
-		req.Header.Set("Authorization", "Bearer "+*bearerToken)
-	}
-
-	// Apply additional custom headers or options if provided
-	for key, value := range options {
-		req.Header.Set(key, value)
-	}
-
-	// Create a context with a timeout
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(napi.TimeoutMs)*time.Millisecond)
-	defer cancel()
-
-	// Make the HTTP request
-	client := &http.Client{}
-	responseChan := make(chan *http.Response, 1)
-	errorChan := make(chan error, 1)
-
-	// Run the HTTP request in a goroutine
-	go func() {
-		resp, err := client.Do(req.WithContext(ctx))
-		if err != nil {
-			errorChan <- err
-			return
-		}
-		responseChan <- resp
-	}()
-
-	// Wait for the response or the timeout
-	select {
-	case <-ctx.Done():
-		return nil, errors.New("request timed out")
-	case err := <-errorChan:
+	result := &api.Rpc{}
+	if err := napi.doReq(bearerToken, req, options, result); err != nil {
 		return nil, errors.As(err)
-	case resp := <-responseChan:
-		defer resp.Body.Close()
-
-		// Handle HTTP response
-		if resp.StatusCode == http.StatusNoContent {
-			return nil, ErrNoContent.As(resp.StatusCode)
-		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			result := &api.Rpc{}
-			bodyBytes, err := io.ReadAll(resp.Body)
-			if err != nil {
-				return nil, errors.As(err)
-			}
-			err = json.Unmarshal(bodyBytes, result)
-			if err != nil {
-				return nil, errors.As(err)
-			}
-			return result, nil
-		} else {
-			bodyBytes, _ := io.ReadAll(resp.Body)
-			return nil, errors.New("unexpected response").As(string(bodyBytes))
-		}
 	}
+
+	return result, nil
 }
 
 func (napi *NakamaApi) SessionLogout(
-	bearerToken *string,
+	bearerToken string,
 	body *api.SessionLogoutRequest,
 	options map[string]string,
-) (any, error) {
+) error {
 	// Validate the required parameter 'body'
 	if body == nil {
-		return nil, errors.New("'body' is a required parameter but is null or undefined")
+		return errors.New("'body' is a required parameter but is null or undefined")
 	}
 
 	// Define the URL path
@@ -6160,7 +4075,7 @@ func (napi *NakamaApi) SessionLogout(
 	// Convert the body to JSON
 	bodyJson, err := json.Marshal(body)
 	if err != nil {
-		return nil, errors.As(err)
+		return errors.As(err)
 	}
 
 	// Construct the full URL
@@ -6169,69 +4084,17 @@ func (napi *NakamaApi) SessionLogout(
 	// Prepare the HTTP request
 	req, err := http.NewRequest("POST", fullUrl, strings.NewReader(string(bodyJson)))
 	if err != nil {
-		return nil, errors.As(err)
+		return errors.As(err)
 	}
 
-	// Set Bearer Token authorization header if provided
-	if checkStr(bearerToken) {
-		req.Header.Set("Authorization", "Bearer "+*bearerToken)
+	if err := napi.doReq(bearerToken, req, options, nil); err != nil {
+		return errors.As(err)
 	}
-
-	// Apply additional custom headers or options if provided
-	for key, value := range options {
-		req.Header.Set(key, value)
-	}
-
-	// Create a context with a timeout
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(napi.TimeoutMs)*time.Millisecond)
-	defer cancel()
-
-	// Make the HTTP request
-	client := &http.Client{}
-	responseChan := make(chan *http.Response, 1)
-	errorChan := make(chan error, 1)
-
-	go func() {
-		resp, err := client.Do(req.WithContext(ctx))
-		if err != nil {
-			errorChan <- err
-			return
-		}
-		responseChan <- resp
-	}()
-
-	// Wait for the response or the timeout
-	select {
-	case <-ctx.Done():
-		return nil, errors.New("request timed out")
-	case err := <-errorChan:
-		return nil, err
-	case resp := <-responseChan:
-		defer resp.Body.Close()
-
-		// Handle HTTP response
-		if resp.StatusCode == http.StatusNoContent {
-			return nil, nil
-		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			bodyBytes, err := io.ReadAll(resp.Body)
-			if err != nil {
-				return nil, err
-			}
-			var result interface{}
-			err = json.Unmarshal(bodyBytes, &result)
-			if err != nil {
-				return nil, err
-			}
-			return result, nil
-		} else {
-			bodyBytes, _ := io.ReadAll(resp.Body)
-			return nil, fmt.Errorf("unexpected response: %s", string(bodyBytes))
-		}
-	}
+	return nil
 }
 
 func (napi *NakamaApi) ReadStorageObjects(
-	bearerToken *string,
+	bearerToken string,
 	body *api.ReadStorageObjectsRequest,
 	options map[string]string,
 ) (*api.StorageObjects, error) {
@@ -6256,69 +4119,19 @@ func (napi *NakamaApi) ReadStorageObjects(
 		return nil, errors.As(err)
 	}
 
-	// Set Bearer Token authorization header if provided
-	if checkStr(bearerToken) {
-		req.Header.Set("Authorization", "Bearer "+*bearerToken)
-	}
-
-	// Apply additional custom headers or options if provided
-	for key, value := range options {
-		req.Header.Set(key, value)
-	}
-
-	// Create a context with a timeout
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(napi.TimeoutMs)*time.Millisecond)
-	defer cancel()
-
-	// Make the HTTP request
-	client := &http.Client{}
-	responseChan := make(chan *http.Response, 1)
-	errorChan := make(chan error, 1)
-
-	go func() {
-		resp, err := client.Do(req.WithContext(ctx))
-		if err != nil {
-			errorChan <- err
-			return
-		}
-		responseChan <- resp
-	}()
-
-	// Wait for the response or the timeout
-	select {
-	case <-ctx.Done():
-		return nil, errors.New("request timed out")
-	case err := <-errorChan:
+	result := &api.StorageObjects{}
+	if err := napi.doReq(bearerToken, req, options, nil); err != nil {
 		return nil, errors.As(err)
-	case resp := <-responseChan:
-		defer resp.Body.Close()
-
-		// Handle HTTP response
-		if resp.StatusCode == http.StatusNoContent {
-			return nil, ErrNoContent.As(resp.StatusCode)
-		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			bodyBytes, err := io.ReadAll(resp.Body)
-			if err != nil {
-				return nil, errors.As(err)
-			}
-			result := &api.StorageObjects{}
-			err = json.Unmarshal(bodyBytes, result)
-			if err != nil {
-				return nil, errors.As(err)
-			}
-			return result, nil
-		} else {
-			bodyBytes, _ := io.ReadAll(resp.Body)
-			return nil, errors.New("unexpected response").As(string(bodyBytes))
-		}
 	}
+
+	return result, nil
 }
 
 func (napi *NakamaApi) WriteStorageObjects(
-	bearerToken *string,
+	bearerToken string,
 	body *api.WriteStorageObjectsRequest,
 	options map[string]string,
-) (api.StorageObjectAcks, error) {
+) (*api.StorageObjectAcks, error) {
 	// Define the URL path
 	urlPath := "/v2/storage"
 
@@ -6328,7 +4141,7 @@ func (napi *NakamaApi) WriteStorageObjects(
 	// Convert the body to JSON
 	bodyJson, err := json.Marshal(body)
 	if err != nil {
-		return api.StorageObjectAcks{}, err
+		return nil, errors.As(err)
 	}
 
 	// Construct the full URL
@@ -6337,72 +4150,22 @@ func (napi *NakamaApi) WriteStorageObjects(
 	// Prepare the HTTP request
 	req, err := http.NewRequest("PUT", fullUrl, strings.NewReader(string(bodyJson)))
 	if err != nil {
-		return api.StorageObjectAcks{}, err
+		return nil, errors.As(err)
 	}
 
-	// Set Bearer Token authorization header if provided
-	if checkStr(bearerToken) {
-		req.Header.Set("Authorization", "Bearer "+*bearerToken)
+	var result api.StorageObjectAcks
+	if err := napi.doReq(bearerToken, req, options, &result); err != nil {
+		return nil, errors.As(err)
 	}
 
-	// Apply additional custom headers or options if provided
-	for key, value := range options {
-		req.Header.Set(key, value)
-	}
-
-	// Create a context with a timeout
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(napi.TimeoutMs)*time.Millisecond)
-	defer cancel()
-
-	// Make the HTTP request
-	client := &http.Client{}
-	responseChan := make(chan *http.Response, 1)
-	errorChan := make(chan error, 1)
-
-	go func() {
-		resp, err := client.Do(req.WithContext(ctx))
-		if err != nil {
-			errorChan <- err
-			return
-		}
-		responseChan <- resp
-	}()
-
-	// Wait for the response or the timeout
-	select {
-	case <-ctx.Done():
-		return api.StorageObjectAcks{}, errors.New("request timed out")
-	case err := <-errorChan:
-		return api.StorageObjectAcks{}, err
-	case resp := <-responseChan:
-		defer resp.Body.Close()
-
-		// Handle HTTP response
-		if resp.StatusCode == http.StatusNoContent {
-			return api.StorageObjectAcks{}, nil
-		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			bodyBytes, err := io.ReadAll(resp.Body)
-			if err != nil {
-				return api.StorageObjectAcks{}, err
-			}
-			var result api.StorageObjectAcks
-			err = json.Unmarshal(bodyBytes, &result)
-			if err != nil {
-				return api.StorageObjectAcks{}, err
-			}
-			return result, nil
-		} else {
-			bodyBytes, _ := io.ReadAll(resp.Body)
-			return api.StorageObjectAcks{}, fmt.Errorf("unexpected response: %s", string(bodyBytes))
-		}
-	}
+	return &result, nil
 }
 
 func (napi *NakamaApi) DeleteStorageObjects(
-	bearerToken *string,
+	bearerToken string,
 	body *api.DeleteStorageObjectsRequest,
 	options map[string]string,
-) (any, error) {
+) error {
 	// Define the URL path
 	urlPath := "/v2/storage/delete"
 
@@ -6412,7 +4175,7 @@ func (napi *NakamaApi) DeleteStorageObjects(
 	// Convert the body to JSON
 	bodyJson, err := json.Marshal(body)
 	if err != nil {
-		return nil, err
+		return errors.As(err)
 	}
 
 	// Construct the full URL
@@ -6421,92 +4184,41 @@ func (napi *NakamaApi) DeleteStorageObjects(
 	// Prepare the HTTP request
 	req, err := http.NewRequest("PUT", fullUrl, strings.NewReader(string(bodyJson)))
 	if err != nil {
-		return nil, err
+		return errors.As(err)
 	}
 
-	// Set Bearer Token authorization header if provided
-	if bearerToken != nil && *bearerToken != "" {
-		req.Header.Set("Authorization", "Bearer "+*bearerToken)
+	if err := napi.doReq(bearerToken, req, options, nil); err != nil {
+		return errors.As(err)
 	}
-
-	// Apply additional custom headers or options if provided
-	for key, value := range options {
-		req.Header.Set(key, value)
-	}
-
-	// Create a context with a timeout
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(napi.TimeoutMs)*time.Millisecond)
-	defer cancel()
-
-	// Make the HTTP request
-	client := &http.Client{}
-	responseChan := make(chan *http.Response, 1)
-	errorChan := make(chan error, 1)
-
-	go func() {
-		resp, err := client.Do(req.WithContext(ctx))
-		if err != nil {
-			errorChan <- err
-			return
-		}
-		responseChan <- resp
-	}()
-
-	// Wait for the response or the timeout
-	select {
-	case <-ctx.Done():
-		return nil, errors.New("request timed out")
-	case err := <-errorChan:
-		return nil, err
-	case resp := <-responseChan:
-		defer resp.Body.Close()
-
-		// Handle HTTP response
-		if resp.StatusCode == http.StatusNoContent {
-			bodyBytes, err := io.ReadAll(resp.Body)
-			if err != nil {
-				return nil, err
-			}
-			return bodyBytes, nil
-		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			bodyBytes, err := io.ReadAll(resp.Body)
-			if err != nil {
-				return nil, err
-			}
-			return bodyBytes, nil
-		} else {
-			bodyBytes, _ := io.ReadAll(resp.Body)
-			return nil, fmt.Errorf("unexpected response: %s", string(bodyBytes))
-		}
-	}
+	return nil
 }
 
 func (napi *NakamaApi) ListStorageObjects(
-	bearerToken *string,
-	collection *string,
-	userId *string,
-	limit *int,
-	cursor *string,
+	bearerToken string,
+	collection string,
+	userId string,
+	limit int,
+	cursor string,
 	options map[string]string,
 ) (*api.StorageObjectList, error) {
 	// Validate the 'collection' parameter
-	if !checkStr(collection) {
+	if !checkStr(&collection) {
 		return nil, errors.New("'collection' is a required parameter but is empty.")
 	}
 
 	// Define the URL path and replace the placeholder
-	urlPath := strings.Replace("/v2/storage/{collection}", "{collection}", url.QueryEscape(*collection), 1)
+	urlPath := strings.Replace("/v2/storage/{collection}", "{collection}", url.QueryEscape(collection), 1)
 
 	// Add query parameters
 	queryParams := url.Values{}
-	if userId != nil {
-		queryParams.Set("user_id", *userId)
+	if userId != "" {
+		queryParams.Set("user_id", userId)
 	}
-	if limit != nil {
-		queryParams.Set("limit", fmt.Sprintf("%d", *limit))
+	if limit > 0 {
+		queryParams.Set("limit", fmt.Sprintf("%d", limit))
 	}
-	if cursor != nil {
-		queryParams.Set("cursor", *cursor)
+	if cursor != "" {
+		queryParams.Set("cursor", cursor)
 	}
 
 	// No request body for this function
@@ -6521,94 +4233,44 @@ func (napi *NakamaApi) ListStorageObjects(
 		return nil, errors.As(err)
 	}
 
-	// Set Bearer Token authorization header if provided
-	if checkStr(bearerToken) {
-		req.Header.Set("Authorization", "Bearer "+*bearerToken)
-	}
-
-	// Apply additional custom headers or options if provided
-	for key, value := range options {
-		req.Header.Set(key, value)
-	}
-
-	// Create a context with a timeout
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(napi.TimeoutMs)*time.Millisecond)
-	defer cancel()
-
-	// Make the HTTP request
-	client := &http.Client{}
-	responseChan := make(chan *http.Response, 1)
-	errorChan := make(chan error, 1)
-
-	go func() {
-		resp, err := client.Do(req.WithContext(ctx))
-		if err != nil {
-			errorChan <- err
-			return
-		}
-		responseChan <- resp
-	}()
-
-	// Wait for the response or the timeout
-	select {
-	case <-ctx.Done():
-		return nil, errors.New("request timed out")
-	case err := <-errorChan:
+	result := &api.StorageObjectList{}
+	if err := napi.doReq(bearerToken, req, options, nil); err != nil {
 		return nil, errors.As(err)
-	case resp := <-responseChan:
-		defer resp.Body.Close()
-
-		// Handle HTTP response
-		if resp.StatusCode == http.StatusNoContent {
-			return nil, ErrNoContent.As(resp.StatusCode)
-		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			bodyBytes, err := io.ReadAll(resp.Body)
-			if err != nil {
-				return nil, errors.As(err)
-			}
-			result := &api.StorageObjectList{}
-			err = json.Unmarshal(bodyBytes, result)
-			if err != nil {
-				return nil, errors.As(err)
-			}
-			return result, nil
-		} else {
-			bodyBytes, _ := io.ReadAll(resp.Body)
-			return nil, errors.New("unexpected response").As(string(bodyBytes))
-		}
 	}
+
+	return result, nil
 }
 
 func (napi *NakamaApi) ListStorageObjects2(
-	bearerToken *string,
-	collection *string,
-	userId *string,
-	limit *int,
-	cursor *string,
+	bearerToken string,
+	collection string,
+	userId string,
+	limit int,
+	cursor string,
 	options map[string]string,
 ) (*api.StorageObjectList, error) {
 
 	// Validate 'collection' and 'userId' parameters
-	if !checkStr(collection) {
+	if !checkStr(&collection) {
 		return nil, errors.New("'collection' is a required parameter but is empty.")
 	}
-	if checkStr(userId) {
+	if checkStr(&userId) {
 		return nil, errors.New("'userId' is a required parameter but is empty.")
 	}
 
 	// Define the URL path and replace placeholders
 	urlPath := strings.Replace(
-		strings.Replace("/v2/storage/{collection}/{userId}", "{collection}", url.QueryEscape(*collection), 1),
-		"{userId}", url.QueryEscape(*userId), 1,
+		strings.Replace("/v2/storage/{collection}/{userId}", "{collection}", url.QueryEscape(collection), 1),
+		"{userId}", url.QueryEscape(userId), 1,
 	)
 
 	// Add query parameters
 	queryParams := url.Values{}
-	if limit != nil {
-		queryParams.Set("limit", fmt.Sprintf("%d", *limit))
+	if limit > 0 {
+		queryParams.Set("limit", fmt.Sprintf("%d", limit))
 	}
-	if cursor != nil {
-		queryParams.Set("cursor", *cursor)
+	if cursor != "" {
+		queryParams.Set("cursor", cursor)
 	}
 
 	// No request body for this function
@@ -6623,73 +4285,23 @@ func (napi *NakamaApi) ListStorageObjects2(
 		return nil, errors.As(err)
 	}
 
-	// Set Bearer Token authorization header if provided
-	if checkStr(bearerToken) {
-		req.Header.Set("Authorization", "Bearer "+*bearerToken)
-	}
-
-	// Apply additional custom headers or options if provided
-	for key, value := range options {
-		req.Header.Set(key, value)
-	}
-
-	// Create a context with a timeout
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(napi.TimeoutMs)*time.Millisecond)
-	defer cancel()
-
-	// Make the HTTP request
-	client := &http.Client{}
-	responseChan := make(chan *http.Response, 1)
-	errorChan := make(chan error, 1)
-
-	go func() {
-		resp, err := client.Do(req.WithContext(ctx))
-		if err != nil {
-			errorChan <- err
-			return
-		}
-		responseChan <- resp
-	}()
-
-	// Wait for the response or the timeout
-	select {
-	case <-ctx.Done():
-		return nil, errors.New("request timed out")
-	case err := <-errorChan:
+	result := &api.StorageObjectList{}
+	if err := napi.doReq(bearerToken, req, options, result); err != nil {
 		return nil, errors.As(err)
-	case resp := <-responseChan:
-		defer resp.Body.Close()
-
-		// Handle HTTP response
-		if resp.StatusCode == http.StatusNoContent {
-			return nil, ErrNoContent.As(resp.StatusCode)
-		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			bodyBytes, err := io.ReadAll(resp.Body)
-			if err != nil {
-				return nil, errors.As(err)
-			}
-			result := &api.StorageObjectList{}
-			err = json.Unmarshal(bodyBytes, result)
-			if err != nil {
-				return nil, errors.As(err)
-			}
-			return result, nil
-		} else {
-			bodyBytes, _ := io.ReadAll(resp.Body)
-			return nil, errors.New("unexpected response").As(string(bodyBytes))
-		}
 	}
+
+	return result, nil
 }
 
 // ListTournaments lists current or upcoming tournaments.
 func (napi *NakamaApi) ListTournaments(
-	bearerToken *string,
+	bearerToken string,
 	categoryStart *int,
 	categoryEnd *int,
 	startTime *int64,
 	endTime *int64,
-	limit *int,
-	cursor *string,
+	limit int,
+	cursor string,
 	options map[string]string,
 ) (*api.TournamentList, error) {
 	// Define the URL path
@@ -6709,11 +4321,11 @@ func (napi *NakamaApi) ListTournaments(
 	if endTime != nil {
 		queryParams.Set("end_time", fmt.Sprintf("%d", *endTime))
 	}
-	if limit != nil {
-		queryParams.Set("limit", fmt.Sprintf("%d", *limit))
+	if limit > 0 {
+		queryParams.Set("limit", fmt.Sprintf("%d", limit))
 	}
-	if cursor != nil {
-		queryParams.Set("cursor", *cursor)
+	if cursor != "" {
+		queryParams.Set("cursor", cursor)
 	}
 
 	// No request body for this function
@@ -6727,78 +4339,27 @@ func (napi *NakamaApi) ListTournaments(
 	if err != nil {
 		return nil, err
 	}
-
-	// Set Bearer Token authorization header if provided
-	if checkStr(bearerToken) {
-		req.Header.Set("Authorization", "Bearer "+*bearerToken)
+	var result api.TournamentList
+	if err := napi.doReq(bearerToken, req, options, &result); err != nil {
+		return nil, errors.As(err)
 	}
 
-	// Apply additional custom headers or options if provided
-	for key, value := range options {
-		req.Header.Set(key, value)
-	}
-
-	// Create a context with a timeout
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(napi.TimeoutMs)*time.Millisecond)
-	defer cancel()
-
-	// Make the HTTP request
-	client := &http.Client{}
-	responseChan := make(chan *http.Response, 1)
-	errorChan := make(chan error, 1)
-
-	go func() {
-		resp, err := client.Do(req.WithContext(ctx))
-		if err != nil {
-			errorChan <- err
-			return
-		}
-		responseChan <- resp
-	}()
-
-	// Wait for the response or the timeout
-	select {
-	case <-ctx.Done():
-		return nil, errors.New("request timed out")
-	case err := <-errorChan:
-		return nil, err
-	case resp := <-responseChan:
-		defer resp.Body.Close()
-
-		// Handle HTTP response
-		if resp.StatusCode == http.StatusNoContent {
-			return &api.TournamentList{}, nil
-		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			bodyBytes, err := io.ReadAll(resp.Body)
-			if err != nil {
-				return nil, err
-			}
-			var result api.TournamentList
-			err = json.Unmarshal(bodyBytes, &result)
-			if err != nil {
-				return nil, err
-			}
-			return &result, nil
-		} else {
-			bodyBytes, _ := io.ReadAll(resp.Body)
-			return nil, fmt.Errorf("unexpected response: %s", string(bodyBytes))
-		}
-	}
+	return &result, nil
 }
 
 // DeleteTournamentRecord deletes a tournament record.
 func (napi *NakamaApi) DeleteTournamentRecord(
-	bearerToken *string,
-	tournamentId *string,
+	bearerToken string,
+	tournamentId string,
 	options map[string]string,
-) (any, error) {
+) error {
 	// Validate the tournamentId
-	if tournamentId == nil && *tournamentId == "" {
-		return nil, errors.New("'tournamentId' is a required parameter but is empty.")
+	if tournamentId == "" {
+		return errors.New("'tournamentId' is a required parameter but is empty.")
 	}
 
 	// Define the URL path
-	urlPath := "/v2/tournament/" + url.QueryEscape(*tournamentId)
+	urlPath := "/v2/tournament/" + url.QueryEscape(tournamentId)
 
 	// No query parameters for this function
 	queryParams := url.Values{}
@@ -6812,71 +4373,32 @@ func (napi *NakamaApi) DeleteTournamentRecord(
 	// Prepare the HTTP request
 	req, err := http.NewRequest("DELETE", fullUrl, strings.NewReader(bodyJson))
 	if err != nil {
-		return nil, err
+		return errors.As(err)
 	}
-
-	// Set Bearer Token authorization header if provided
-	if bearerToken != nil && *bearerToken != "" {
-		req.Header.Set("Authorization", "Bearer "+*bearerToken)
+	if err := napi.doReq(bearerToken, req, options, nil); err != nil {
+		return errors.As(err)
 	}
-
-	// Apply additional custom headers or options if provided
-	for key, value := range options {
-		req.Header.Set(key, value)
-	}
-
-	// Create a context with a timeout
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(napi.TimeoutMs)*time.Millisecond)
-	defer cancel()
-
-	// Make the HTTP request
-	client := &http.Client{}
-	resp, err := client.Do(req.WithContext(ctx))
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	// Check the HTTP status code
-	if resp.StatusCode == http.StatusNoContent {
-		// Success with no content
-		bodyBytes, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return nil, err
-		}
-		return bodyBytes, nil
-	} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-		// Success with content, consume body (optional)
-		bodyBytes, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return nil, err
-		}
-		return bodyBytes, nil
-	} else {
-		// Handle error response
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("unexpected response: %s", string(bodyBytes))
-	}
+	return nil
 }
 
 // ListTournamentRecords lists tournament records.
 func (napi *NakamaApi) ListTournamentRecords(
-	bearerToken *string,
-	tournamentId *string,
+	bearerToken string,
+	tournamentId string,
 	ownerIds []string,
-	limit *int,
-	cursor *string,
-	expiry *string,
+	limit int,
+	cursor string,
+	expiry string,
 	options map[string]string,
 ) (*api.TournamentRecordList, error) {
 
 	// Validate the tournamentId
-	if !checkStr(tournamentId) {
+	if !checkStr(&tournamentId) {
 		return nil, errors.New("'tournamentId' is a required parameter but is empty.")
 	}
 
 	// Define the URL path
-	urlPath := "/v2/tournament/" + url.QueryEscape(*tournamentId)
+	urlPath := "/v2/tournament/" + url.QueryEscape(tournamentId)
 
 	// Add query parameters
 	queryParams := url.Values{}
@@ -6885,14 +4407,14 @@ func (napi *NakamaApi) ListTournamentRecords(
 			queryParams.Add("owner_ids", id)
 		}
 	}
-	if limit != nil {
-		queryParams.Set("limit", fmt.Sprintf("%d", *limit))
+	if limit > 0 {
+		queryParams.Set("limit", fmt.Sprintf("%d", limit))
 	}
-	if cursor != nil {
-		queryParams.Set("cursor", *cursor)
+	if cursor != "" {
+		queryParams.Set("cursor", cursor)
 	}
-	if expiry != nil {
-		queryParams.Set("expiry", *expiry)
+	if expiry != "" {
+		queryParams.Set("expiry", expiry)
 	}
 
 	// No request body for this function
@@ -6907,74 +4429,24 @@ func (napi *NakamaApi) ListTournamentRecords(
 		return nil, errors.As(err)
 	}
 
-	// Set Bearer Token authorization header if provided
-	if checkStr(bearerToken) {
-		req.Header.Set("Authorization", "Bearer "+*bearerToken)
-	}
-
-	// Apply additional custom headers or options if provided
-	for key, value := range options {
-		req.Header.Set(key, value)
-	}
-
-	// Create a context with a timeout
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(napi.TimeoutMs)*time.Millisecond)
-	defer cancel()
-
-	// Make the HTTP request
-	client := &http.Client{}
-	responseChan := make(chan *http.Response, 1)
-	errorChan := make(chan error, 1)
-
-	go func() {
-		resp, err := client.Do(req.WithContext(ctx))
-		if err != nil {
-			errorChan <- errors.As(err)
-			return
-		}
-		responseChan <- resp
-	}()
-
-	// Wait for the response or the timeout
-	select {
-	case <-ctx.Done():
-		return nil, errors.New("request timed out")
-	case err := <-errorChan:
+	result := &api.TournamentRecordList{}
+	if err := napi.doReq(bearerToken, req, options, nil); err != nil {
 		return nil, errors.As(err)
-	case resp := <-responseChan:
-		defer resp.Body.Close()
-
-		// Handle HTTP response
-		if resp.StatusCode == http.StatusNoContent {
-			return nil, ErrNoContent.As(resp.StatusCode)
-		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			bodyBytes, err := io.ReadAll(resp.Body)
-			if err != nil {
-				return nil, errors.As(err)
-			}
-			result := &api.TournamentRecordList{}
-			err = json.Unmarshal(bodyBytes, result)
-			if err != nil {
-				return nil, errors.As(err)
-			}
-			return result, nil
-		} else {
-			bodyBytes, _ := io.ReadAll(resp.Body)
-			return nil, errors.New("unexpected response").As(string(bodyBytes))
-		}
 	}
+
+	return result, nil
 }
 
 // WriteTournamentRecord2 writes a record to a tournament.
 func (napi *NakamaApi) WriteTournamentRecord2(
-	bearerToken *string,
-	tournamentId *string,
+	bearerToken string,
+	tournamentId string,
 	record *api.WriteTournamentRecordRequest,
 	options map[string]string,
 ) (*api.LeaderboardRecord, error) {
 
 	// Validate the tournamentId and record
-	if checkStr(tournamentId) {
+	if checkStr(&tournamentId) {
 		return nil, errors.New("'tournamentId' is a required parameter but is empty.")
 	}
 	if record == nil {
@@ -6982,7 +4454,7 @@ func (napi *NakamaApi) WriteTournamentRecord2(
 	}
 
 	// Define the URL path
-	urlPath := "/v2/tournament/" + url.QueryEscape(*tournamentId)
+	urlPath := "/v2/tournament/" + url.QueryEscape(tournamentId)
 
 	// Prepare the request body
 	bodyJson, err := json.Marshal(record)
@@ -6999,61 +4471,24 @@ func (napi *NakamaApi) WriteTournamentRecord2(
 		return nil, errors.As(err)
 	}
 
-	// Set Bearer Token authorization header if provided
-	if checkStr(bearerToken) {
-		req.Header.Set("Authorization", "Bearer "+*bearerToken)
-	}
-
-	// Apply additional custom headers or options if provided
-	for key, value := range options {
-		req.Header.Set(key, value)
-	}
-
-	// Create a context with a timeout
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(napi.TimeoutMs)*time.Millisecond)
-	defer cancel()
-
-	// Make the HTTP request
-	client := &http.Client{}
-	resp, err := client.Do(req.WithContext(ctx))
-	if err != nil {
+	result := &api.LeaderboardRecord{}
+	if err := napi.doReq(bearerToken, req, options, result); err != nil {
 		return nil, errors.As(err)
 	}
-	defer resp.Body.Close()
 
-	// Handle the HTTP response
-	if resp.StatusCode == http.StatusNoContent {
-		// Success with no content
-		return nil, ErrNoContent.As(resp.StatusCode)
-	} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-		// Success with content, parse response body
-		bodyBytes, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return nil, errors.As(err)
-		}
-		result := &api.LeaderboardRecord{}
-		err = json.Unmarshal(bodyBytes, result)
-		if err != nil {
-			return nil, errors.As(err)
-		}
-		return result, nil
-	} else {
-		// Handle error response
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		return nil, errors.New("unexpected response").As(string(bodyBytes))
-	}
+	return result, nil
 }
 
 // WriteTournamentRecord writes a record to a tournament.
 func (napi *NakamaApi) WriteTournamentRecord(
-	bearerToken *string,
-	tournamentId *string,
+	bearerToken string,
+	tournamentId string,
 	record *api.WriteTournamentRecordRequest_TournamentRecordWrite,
 	options map[string]string,
 ) (*api.LeaderboardRecord, error) {
 
 	// Validate the tournamentId and record
-	if !checkStr(tournamentId) {
+	if !checkStr(&tournamentId) {
 		return nil, errors.New("'tournamentId' is a required parameter but is empty.")
 	}
 	if record == nil {
@@ -7061,7 +4496,7 @@ func (napi *NakamaApi) WriteTournamentRecord(
 	}
 
 	// Define the URL path
-	urlPath := "/v2/tournament/" + url.QueryEscape(*tournamentId)
+	urlPath := "/v2/tournament/" + url.QueryEscape(tournamentId)
 
 	// Prepare the request body
 	bodyJson, err := json.Marshal(record)
@@ -7078,79 +4513,28 @@ func (napi *NakamaApi) WriteTournamentRecord(
 		return nil, errors.As(err)
 	}
 
-	// Set Bearer Token authorization header if provided
-	if checkStr(bearerToken) {
-		req.Header.Set("Authorization", "Bearer "+*bearerToken)
-	}
-
-	// Apply additional custom headers or options if provided
-	for key, value := range options {
-		req.Header.Set(key, value)
-	}
-
-	// Create a context with a timeout
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(napi.TimeoutMs)*time.Millisecond)
-	defer cancel()
-
-	// Make the HTTP request
-	client := &http.Client{}
-	responseChan := make(chan *http.Response, 1)
-	errorChan := make(chan error, 1)
-
-	go func() {
-		resp, err := client.Do(req.WithContext(ctx))
-		if err != nil {
-			errorChan <- errors.As(err)
-			return
-		}
-		responseChan <- resp
-	}()
-
-	// Wait for the response or the timeout
-	select {
-	case <-ctx.Done():
-		return nil, errors.New("request timed out")
-	case err := <-errorChan:
+	result := &api.LeaderboardRecord{}
+	if err := napi.doReq(bearerToken, req, options, result); err != nil {
 		return nil, errors.As(err)
-	case resp := <-responseChan:
-		defer resp.Body.Close()
-
-		if resp.StatusCode == http.StatusNoContent {
-			return nil, ErrNoContent.As(resp.StatusCode)
-		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			// Success with content, parse response body
-			bodyBytes, err := io.ReadAll(resp.Body)
-			if err != nil {
-				return nil, errors.As(err)
-			}
-			result := &api.LeaderboardRecord{}
-			err = json.Unmarshal(bodyBytes, result)
-			if err != nil {
-				return nil, errors.As(err)
-			}
-			return result, nil
-		} else {
-			// Handle error response
-			bodyBytes, _ := io.ReadAll(resp.Body)
-			return nil, errors.New("unexpected response").As(string(bodyBytes))
-		}
 	}
+
+	return result, nil
 }
 
 // JoinTournament attempts to join an open and running tournament.
 func (napi *NakamaApi) JoinTournament(
-	bearerToken *string,
-	tournamentId *string,
+	bearerToken string,
+	tournamentId string,
 	options map[string]string,
-) (any, error) {
+) error {
 
 	// Validate the tournamentId
-	if !checkStr(tournamentId) {
-		return nil, errors.New("'tournamentId' is a required parameter but is empty.")
+	if !checkStr(&tournamentId) {
+		return errors.New("'tournamentId' is a required parameter but is empty.")
 	}
 
 	// Define the URL path
-	urlPath := "/v2/tournament/" + url.QueryEscape(*tournamentId) + "/join"
+	urlPath := "/v2/tournament/" + url.QueryEscape(tournamentId) + "/join"
 
 	// Prepare the query params (if any, currently empty map)
 	queryParams := url.Values{}
@@ -7164,101 +4548,46 @@ func (napi *NakamaApi) JoinTournament(
 	// Prepare the HTTP request
 	req, err := http.NewRequest("POST", fullUrl, strings.NewReader(bodyJson))
 	if err != nil {
-		return nil, errors.As(err)
+		return errors.As(err)
 	}
-
-	// Set Bearer Token authorization header if provided
-	if checkStr(bearerToken) {
-		req.Header.Set("Authorization", "Bearer "+*bearerToken)
+	if err := napi.doReq(bearerToken, req, options, nil); err != nil {
+		return errors.As(err)
 	}
-
-	// Apply additional custom headers or options if provided
-	for key, value := range options {
-		req.Header.Set(key, value)
-	}
-
-	// Create a context with a timeout
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(napi.TimeoutMs)*time.Millisecond)
-	defer cancel()
-
-	// Make the HTTP request
-	client := &http.Client{}
-	responseChan := make(chan *http.Response, 1)
-	errorChan := make(chan error, 1)
-
-	go func() {
-		resp, err := client.Do(req.WithContext(ctx))
-		if err != nil {
-			errorChan <- errors.As(err)
-			return
-		}
-		responseChan <- resp
-	}()
-
-	// Wait for the response or the timeout
-	select {
-	case <-ctx.Done():
-		return nil, errors.New("request timed out")
-	case err := <-errorChan:
-		return nil, errors.As(err)
-	case resp := <-responseChan:
-		defer resp.Body.Close()
-
-		if resp.StatusCode == http.StatusNoContent {
-			// Success with no content
-			return nil, nil
-		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			// Success with content, parse response body
-			bodyBytes, err := io.ReadAll(resp.Body)
-			if err != nil {
-				return nil, errors.As(err)
-			}
-			var result interface{} // TODO: nil?
-			err = json.Unmarshal(bodyBytes, &result)
-			if err != nil {
-				return nil, errors.As(err)
-			}
-			return result, nil
-		} else {
-			// Handle error response
-			bodyBytes, _ := io.ReadAll(resp.Body)
-			return nil, errors.New("unexpected response").As(string(bodyBytes))
-		}
-	}
+	return nil
 }
 
 // ListTournamentRecordsAroundOwner lists tournament records for a given owner.
 func (napi *NakamaApi) ListTournamentRecordsAroundOwner(
-	bearerToken *string,
-	tournamentId *string,
-	ownerId *string,
-	limit *int,
-	expiry *string,
-	cursor *string,
+	bearerToken string,
+	tournamentId string,
+	ownerId string,
+	limit int,
+	expiry string,
+	cursor string,
 	options map[string]string,
 ) (*api.TournamentRecordList, error) {
 
 	// Validate the tournamentId and ownerId
-	if !checkStr(tournamentId) {
+	if !checkStr(&tournamentId) {
 		return nil, errors.New("'tournamentId' is a required parameter but is empty.")
 	}
-	if !checkStr(ownerId) {
+	if !checkStr(&ownerId) {
 		return nil, errors.New("'ownerId' is a required parameter but is empty.")
 	}
 
 	// Define the URL path
-	urlPath := "/v2/tournament/" + url.QueryEscape(*tournamentId) + "/owner/" + url.QueryEscape(*ownerId)
+	urlPath := "/v2/tournament/" + url.QueryEscape(tournamentId) + "/owner/" + url.QueryEscape(ownerId)
 
 	// Prepare the query params
 	queryParams := url.Values{}
-	if limit != nil {
-		queryParams.Set("limit", fmt.Sprintf("%d", *limit))
+	if limit > 0 {
+		queryParams.Set("limit", fmt.Sprintf("%d", limit))
 	}
-	if expiry != nil {
-		queryParams.Set("expiry", *expiry)
+	if expiry != "" {
+		queryParams.Set("expiry", expiry)
 	}
-	if cursor != nil {
-		queryParams.Set("cursor", *cursor)
+	if cursor != "" {
+		queryParams.Set("cursor", cursor)
 	}
 
 	// Prepare the request body (empty)
@@ -7273,64 +4602,11 @@ func (napi *NakamaApi) ListTournamentRecordsAroundOwner(
 		return nil, errors.As(err)
 	}
 
-	// Set Bearer Token authorization header if provided
-	if checkStr(bearerToken) {
-		req.Header.Set("Authorization", "Bearer "+*bearerToken)
-	}
-
-	// Apply additional custom headers or options if provided
-	for key, value := range options {
-		req.Header.Set(key, value)
-	}
-
-	// Create a context with a timeout
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(napi.TimeoutMs)*time.Millisecond)
-	defer cancel()
-
-	// Make the HTTP request
-	client := &http.Client{}
-	responseChan := make(chan *http.Response, 1)
-	errorChan := make(chan error, 1)
-
-	go func() {
-		resp, err := client.Do(req.WithContext(ctx))
-		if err != nil {
-			errorChan <- errors.As(err)
-			return
-		}
-		responseChan <- resp
-	}()
-
-	// Wait for the response or the timeout
-	select {
-	case <-ctx.Done():
-		return nil, errors.New("request timed out")
-	case err := <-errorChan:
+	var result api.TournamentRecordList
+	if err := napi.doReq(bearerToken, req, options, nil); err != nil {
 		return nil, errors.As(err)
-	case resp := <-responseChan:
-		defer resp.Body.Close()
-
-		if resp.StatusCode == http.StatusNoContent {
-			// Success with no content
-			return nil, ErrNoContent.As(resp.StatusCode)
-		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			// Success with content, parse response body
-			bodyBytes, err := io.ReadAll(resp.Body)
-			if err != nil {
-				return nil, errors.As(err)
-			}
-			var result api.TournamentRecordList
-			err = json.Unmarshal(bodyBytes, &result)
-			if err != nil {
-				return nil, errors.As(err)
-			}
-			return &result, nil
-		} else {
-			// Handle error response
-			bodyBytes, _ := io.ReadAll(resp.Body)
-			return nil, errors.New("unexpected response").As(string(bodyBytes))
-		}
 	}
+	return &result, nil
 }
 
 // GetUsers fetches zero or more users by ID and/or username.
@@ -7368,96 +4644,44 @@ func (napi *NakamaApi) GetUsers(
 	if err != nil {
 		return nil, err
 	}
-
-	// Set Bearer Token authorization header if provided
-	if checkStr(bearerToken) {
-		req.Header.Set("Authorization", "Bearer "+*bearerToken)
-	}
-
-	// Apply additional custom headers or options if provided
-	for key, value := range options {
-		req.Header.Set(key, value)
-	}
-
-	// Create a context with a timeout
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(napi.TimeoutMs)*time.Millisecond)
-	defer cancel()
-
-	// Make the HTTP request
-	client := &http.Client{}
-	responseChan := make(chan *http.Response, 1)
-	errorChan := make(chan error, 1)
-
-	go func() {
-		resp, err := client.Do(req.WithContext(ctx))
-		if err != nil {
-			errorChan <- err
-			return
-		}
-		responseChan <- resp
-	}()
-
-	// Wait for the response or the timeout
-	select {
-	case <-ctx.Done():
-		return nil, errors.New("request timed out")
-	case err := <-errorChan:
+	var result api.Users
+	if err := napi.doReq("", req, options, &result); err != nil {
 		return nil, errors.As(err)
-	case resp := <-responseChan:
-		defer resp.Body.Close()
-
-		if resp.StatusCode == http.StatusNoContent {
-			// Success with no content
-			return nil, ErrNoContent.As(resp.StatusCode)
-		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			// Success with content, parse response body
-			bodyBytes, err := io.ReadAll(resp.Body)
-			if err != nil {
-				return nil, errors.As(err)
-			}
-			var result api.Users
-			err = json.Unmarshal(bodyBytes, &result)
-			if err != nil {
-				return nil, errors.As(err)
-			}
-			return &result, nil
-		} else {
-			// Handle error response
-			bodyBytes, _ := io.ReadAll(resp.Body)
-			return nil, errors.New("unexpected response").As(string(bodyBytes))
-		}
 	}
+
+	return &result, nil
+
 }
 
 // ListUserGroups lists the groups the current user belongs to.
 func (napi *NakamaApi) ListUserGroups(
-	bearerToken *string,
-	userId *string,
-	limit *int,
+	bearerToken string,
+	userId string,
 	state *int,
-	cursor *string,
+	limit int,
+	cursor string,
 	options map[string]string,
 ) (*api.UserGroupList, error) {
 
 	// Validate required parameters
-	if !checkStr(userId) {
+	if !checkStr(&userId) {
 		return nil, errors.New("'userId' is a required parameter but is empty.")
 	}
 
 	// Define the URL path and replace placeholder
 	urlPath := "/v2/user/{userId}/group"
-	urlPath = strings.Replace(urlPath, "{userId}", url.QueryEscape(*userId), 1)
+	urlPath = strings.Replace(urlPath, "{userId}", url.QueryEscape(userId), 1)
 
 	// Prepare the query params
 	queryParams := url.Values{}
-	if limit != nil {
-		queryParams.Set("limit", strconv.Itoa(*limit))
+	if limit > 0 {
+		queryParams.Set("limit", strconv.Itoa(limit))
 	}
 	if state != nil {
 		queryParams.Set("state", strconv.Itoa(*state))
 	}
-	if cursor != nil {
-		queryParams.Set("cursor", *cursor)
+	if cursor != "" {
+		queryParams.Set("cursor", cursor)
 	}
 
 	// Prepare the request body (empty)
@@ -7472,64 +4696,12 @@ func (napi *NakamaApi) ListUserGroups(
 		return nil, errors.As(err)
 	}
 
-	// Set Bearer Token authorization header if provided
-	if checkStr(bearerToken) {
-		req.Header.Set("Authorization", "Bearer "+*bearerToken)
-	}
-
-	// Apply additional custom headers or options if provided
-	for key, value := range options {
-		req.Header.Set(key, value)
-	}
-
-	// Create a context with a timeout
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(napi.TimeoutMs)*time.Millisecond)
-	defer cancel()
-
-	// Make the HTTP request
-	client := &http.Client{}
-	responseChan := make(chan *http.Response, 1)
-	errorChan := make(chan error, 1)
-
-	go func() {
-		resp, err := client.Do(req.WithContext(ctx))
-		if err != nil {
-			errorChan <- err
-			return
-		}
-		responseChan <- resp
-	}()
-
-	// Wait for the response or the timeout
-	select {
-	case <-ctx.Done():
-		return nil, errors.New("request timed out")
-	case err := <-errorChan:
+	var result api.UserGroupList
+	if err := napi.doReq(bearerToken, req, options, &result); err != nil {
 		return nil, errors.As(err)
-	case resp := <-responseChan:
-		defer resp.Body.Close()
-
-		if resp.StatusCode == http.StatusNoContent {
-			// Success with no content
-			return nil, ErrNoContent.As(resp.StatusCode)
-		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			// Success with content, parse response body
-			bodyBytes, err := io.ReadAll(resp.Body)
-			if err != nil {
-				return nil, errors.As(err)
-			}
-			var result api.UserGroupList
-			err = json.Unmarshal(bodyBytes, &result)
-			if err != nil {
-				return nil, errors.As(err)
-			}
-			return &result, nil
-		} else {
-			// Handle error response
-			bodyBytes, _ := io.ReadAll(resp.Body)
-			return nil, errors.New("unexpected response").As(string(bodyBytes))
-		}
 	}
+
+	return &result, nil
 }
 
 func (napi *NakamaApi) buildFullUrl(basePath string, fragment string, queryParams url.Values) string {

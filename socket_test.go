@@ -3,15 +3,16 @@ package nakama
 import (
 	"testing"
 
+	api "github.com/heroiclabs/nakama-common/api"
 	"github.com/stretchr/testify/assert"
 )
 
 func setupSocket(t *testing.T) (*Client, *Session) {
-	client := NewClient("defaultkey", "127.0.0.1", "7350", false, nil, nil)
+	client := NewClient("defaultkey", "127.0.0.1", "7350", false, 0, true)
 
 	deviceId := "376C007D-260F-579B-BD75-A3CBBFC2EF99"
 	create := true
-	session, err := client.AuthenticateDevice(deviceId, &create, nil, nil)
+	session, err := client.AuthenticateDevice(deviceId, &create, "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -29,7 +30,7 @@ func TestCreateMatch_NoName(t *testing.T) {
 
 	assert.NoError(t, err)
 	assert.NotNil(t, match)
-	assert.IsType(t, &Match{}, match)
+	assert.IsType(t, &api.Match{}, match)
 }
 
 func TestCreateMatch_WithName(t *testing.T) {
@@ -42,16 +43,16 @@ func TestCreateMatch_WithName(t *testing.T) {
 
 	assert.NoError(t, err)
 	assert.NotNil(t, match)
-	assert.IsType(t, &Match{}, match)
+	assert.IsType(t, &api.Match{}, match)
 }
 
 func createSocket(t *testing.T, client *Client, session *Session) *DefaultSocket {
 	timeout := 1000
-	socket := client.CreateSocket(false, true, nil, &timeout)
+	socket := client.CreateSocket(nil, "", false, true, &timeout, nil)
 
 	assert.IsType(t, DefaultSocket{}, socket)
 
-	err := socket.Connect(session, nil, &timeout, nil)
+	err := socket.Connect()
 	assert.NoError(t, err)
 
 	return socket
