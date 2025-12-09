@@ -16,14 +16,14 @@ type ISession interface {
 
 // Session implements the ISession interface.
 type Session struct {
-	Token            *string
-	Created          *bool
-	CreatedAt        *int64
-	ExpiresAt        *int64
-	RefreshExpiresAt *int64
-	RefreshToken     *string
-	Username         *string
-	UserID           *string
+	Token            string
+	Created          bool
+	CreatedAt        int64
+	ExpiresAt        int64
+	RefreshExpiresAt int64
+	RefreshToken     string
+	Username         string
+	UserID           string
 	Vars             map[string]interface{}
 }
 
@@ -39,10 +39,10 @@ func (s *Session) ToJson() string {
 func NewSession(token, refreshToken string, created bool) *Session {
 	unixTime := time.Now().Unix()
 	session := &Session{
-		Token:        &token,
-		RefreshToken: &refreshToken,
-		Created:      &created,
-		CreatedAt:    &unixTime,
+		Token:        token,
+		RefreshToken: refreshToken,
+		Created:      created,
+		CreatedAt:    unixTime,
 	}
 	session.Update(token, refreshToken)
 	return session
@@ -50,18 +50,12 @@ func NewSession(token, refreshToken string, created bool) *Session {
 
 // IsExpired checks if the session token has expired.
 func (s *Session) IsExpired(currentTime int64) bool {
-	if s.ExpiresAt == nil {
-		return false
-	}
-	return (*s.ExpiresAt - currentTime) < 0
+	return (s.ExpiresAt - currentTime) < 0
 }
 
 // IsRefreshExpired checks if the refresh token has expired.
 func (s *Session) IsRefreshExpired(currentTime int64) bool {
-	if s.RefreshExpiresAt == nil {
-		return false
-	}
-	return (*s.RefreshExpiresAt - currentTime) < 0
+	return (s.RefreshExpiresAt - currentTime) < 0
 }
 
 // Update updates the session with a new token and refresh token.
@@ -75,14 +69,14 @@ func (s *Session) Update(token, refreshToken string) error {
 	if err != nil {
 		return err
 	}
-	s.ExpiresAt = &exp
+	s.ExpiresAt = exp
 
-	s.Token = &token
+	s.Token = token
 	if username, ok := tokenDecoded["usn"].(string); ok {
-		s.Username = &username
+		s.Username = username
 	}
 	if userID, ok := tokenDecoded["uid"].(string); ok {
-		s.UserID = &userID
+		s.UserID = userID
 	}
 	if vars, ok := tokenDecoded["vrs"].(map[string]interface{}); ok {
 		s.Vars = vars
@@ -99,8 +93,8 @@ func (s *Session) Update(token, refreshToken string) error {
 		if err != nil {
 			return err
 		}
-		s.RefreshExpiresAt = &refreshExp
-		s.RefreshToken = &refreshToken
+		s.RefreshExpiresAt = refreshExp
+		s.RefreshToken = refreshToken
 	}
 
 	return nil

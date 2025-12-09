@@ -80,7 +80,10 @@ func B64DecodeUnicode(str string) (string, error) {
 }
 
 // Helper function to convert time.Time to *string
-func timeToStringPointer(t time.Time, layout string) *string {
+func timeToStringPointer(t *time.Time, layout string) *string {
+	if t == nil {
+		return nil
+	}
 	formattedTime := t.Format(layout)
 	return &formattedTime
 }

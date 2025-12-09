@@ -78,10 +78,10 @@ type SocketError struct {
 }
 
 type Message struct {
-	Cid           *string         `json:"cid"`
-	Error         *error          `json:"error"`
-	Notifications *[]Notification `json:"notifications"`
-	Payload       interface{}     `json:"payload"`
+	Cid           *string             `json:"cid"`
+	Error         *error              `json:"error"`
+	Notifications *[]api.Notification `json:"notifications"`
+	Payload       interface{}         `json:"payload"`
 }
 
 // DefaultSocket constants
