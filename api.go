@@ -20,7 +20,8 @@ import (
 )
 
 var (
-	ErrNoContent = errors.New("No content by 204")
+	ErrNoContent  = errors.New("No content by 204")
+	ErrAuthFailed = errors.New("Auth failed")
 )
 
 type NakamaApi struct {
@@ -69,21 +70,21 @@ func (napi *NakamaApi) doReq(bearerToken string, req *http.Request, options map[
 			return ErrNoContent.As(resp.StatusCode)
 		}
 		return nil
-	} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+	} else {
 		bodyBytes, err := io.ReadAll(resp.Body)
 		if err != nil {
 			return errors.As(err, string(bodyBytes))
 		}
-		if rsp == nil {
+		if rsp != nil {
+			if err := protojson.Unmarshal(bodyBytes, rsp); err != nil {
+				return errors.As(err)
+			}
+		}
+		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 			return nil
 		}
-
-		if err := protojson.Unmarshal(bodyBytes, rsp); err != nil {
-			return errors.As(err)
-		}
-		return nil
+		return errors.New(resp.Status).As(resp.StatusCode, string(bodyBytes))
 	}
-	return errors.New(resp.Status).As(resp.StatusCode)
 }
 
 // Healthcheck is a healthcheck function that load balancers can use to check the service.

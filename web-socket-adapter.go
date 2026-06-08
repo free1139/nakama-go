@@ -18,7 +18,7 @@ import (
 type WebSocketAdapter struct {
 	uri       string
 	socket    *websocket.Conn
-	onError   func(err error)
+	onError   func(status websocket.StatusCode, err error)
 	onMessage func(mType int, message []byte)
 	mu        sync.Mutex // To guard websocket connection reference
 }
@@ -68,8 +68,12 @@ func (w *WebSocketAdapter) Connect() error {
 	defer cancel()
 	w.socket, _, err = websocket.Dial(ctx, w.uri, nil)
 	if err != nil {
-		return err
+		if err.Error() == "failed to WebSocket dial: expected handshake response status code 101 but got 401" {
+			return ErrAuthFailed.As(err.Error)
+		}
+		return errors.As(err)
 	}
+	w.socket.SetReadLimit(1024 * 1024)
 
 	go w.listen()
 
@@ -138,7 +142,7 @@ func (w *WebSocketAdapter) listen() {
 				w.Close()
 			}
 			if w.onError != nil {
-				w.onError(errors.As(err, closeStatus))
+				w.onError(closeStatus, errors.As(err, closeStatus))
 			} else {
 				log.Infof("WebSocket closed with status: %d, cause:%s", closeStatus, err.Error())
 			}

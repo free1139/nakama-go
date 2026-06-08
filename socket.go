@@ -4,12 +4,12 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
-	"math"
 	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/coder/websocket"
 	"github.com/gwaylib/errors"
 	"github.com/gwaylib/log"
 	api "github.com/heroiclabs/nakama-common/api"
@@ -32,12 +32,14 @@ const (
 )
 
 const (
-	EventTypeConnecting   = EventType(0)
-	EventTypeConnected    = EventType(1)
-	EventTypeMessage      = EventType(2)
-	EventTypeReconnecting = EventType(3)
-	EventTypeReConnected  = EventType(4)
-	EventTypePingPong     = EventType(5)
+	EVENT_TYPE_CONNECTING            = EventType(0)
+	EVENT_TYPE_CONNECTED             = EventType(1)
+	EVENT_TYPE_MESSAGE               = EventType(2)
+	EVENT_TYPE_RECONNECTING          = EventType(3)
+	EVENT_TYPE_RECONNECTED           = EventType(4)
+	EVENT_TYPE_PING_PONG             = EventType(5)
+	EVENT_TYPE_RECONNECT_FAILED      = EventType(6)
+	EVENT_TYPE_RECONNECT_FAILED_AUTH = EventType(7)
 	// TODO: need closed?
 )
 
@@ -45,18 +47,22 @@ type EventType int
 
 func (e EventType) String() string {
 	switch e {
-	case EventTypeConnecting:
+	case EVENT_TYPE_CONNECTING:
 		return "Connecting"
-	case EventTypeMessage:
-		return "Message"
-	case EventTypeReconnecting:
-		return "Reconnecting"
-	case EventTypeConnected:
+	case EVENT_TYPE_CONNECTED:
 		return "Connected"
-	case EventTypePingPong:
+	case EVENT_TYPE_MESSAGE:
+		return "Message"
+	case EVENT_TYPE_RECONNECTING:
+		return "Reconnecting"
+	case EVENT_TYPE_RECONNECTED:
+		return "Reconnected"
+	case EVENT_TYPE_RECONNECT_FAILED:
+		return "ReconnectFailed"
+	case EVENT_TYPE_PING_PONG:
 		return "PingPong"
 	}
-	return "Unknow"
+	return fmt.Sprintf("Unknow(%d)", e)
 }
 
 type RspResult struct {
@@ -99,8 +105,9 @@ type DefaultSocket struct {
 	heartbeatTimeoutMs int
 	eventHandle        EventHandler
 
-	cIds    sync.Map // string:chan any
-	nextCid int
+	cIds      sync.Map // string:chan any
+	nextCidLk sync.Mutex
+	nextCid   int64
 
 	userClosed atomic.Bool
 }
@@ -128,7 +135,6 @@ func NewDefaultSocket(eventHandle EventHandler, host, port, token string, useSSL
 		heartbeatTimeoutMs: DefaultHeartbeatTimeoutMs,
 		eventHandle:        eventHandle,
 		cIds:               sync.Map{},
-		nextCid:            1,
 	}
 	adapter := NewWebSocketAdapterText(scheme, host, port, *createStatus, token)
 	adapter.onError = socket.onError
@@ -143,15 +149,16 @@ func NewDefaultSocket(eventHandle EventHandler, host, port, token string, useSSL
 
 // GenerateCID generates a unique client ID for requests.
 func (socket *DefaultSocket) GenerateCID() string {
-	cid := strconv.FormatInt(int64(socket.nextCid), 16)
+	socket.nextCidLk.Lock()
+	defer socket.nextCidLk.Unlock()
 	socket.nextCid++
-	return cid
+	return strconv.FormatInt(socket.nextCid, 16)
 }
 
 // Connect establishes the WebSocket connection with optional timeouts.
 func (socket *DefaultSocket) Connect() error {
 	if socket.eventHandle != nil {
-		go socket.eventHandle(EventTypeConnecting, nil)
+		go socket.eventHandle(EVENT_TYPE_CONNECTING, nil)
 	}
 
 	if err := socket.adapter.Connect(); err != nil {
@@ -160,14 +167,15 @@ func (socket *DefaultSocket) Connect() error {
 	go socket.pingPong(context.TODO())
 
 	if socket.eventHandle != nil {
-		go socket.eventHandle(EventTypeConnected, nil)
+		go socket.eventHandle(EVENT_TYPE_CONNECTED, nil)
 	}
 	return nil
 
 }
 
 // Disconnect terminates the WebSocket connection.
-func (socket *DefaultSocket) Disconnect() {
+func (socket *DefaultSocket) Disconnect(reason string) {
+	log.Debug("socket disconnect by user", reason)
 	socket.userClosed.Store(true)
 	if socket.adapter.IsOpen() {
 		socket.adapter.Close()
@@ -186,8 +194,9 @@ func (socket *DefaultSocket) GetHeartbeatTimeoutMs() int {
 
 func (socket *DefaultSocket) reconnect(tryTimes int) error {
 	if socket.eventHandle != nil {
-		go socket.eventHandle(EventTypeReconnecting, nil)
+		go socket.eventHandle(EVENT_TYPE_RECONNECTING, nil)
 	}
+	var err error
 	for i := tryTimes; i > 0; i-- {
 		if socket.userClosed.Load() {
 			return errors.New("user has closed the connection")
@@ -196,27 +205,39 @@ func (socket *DefaultSocket) reconnect(tryTimes int) error {
 			return nil
 		}
 
-		if err := socket.adapter.Connect(); err != nil {
+		err := socket.adapter.Connect()
+		if err != nil {
+			if ErrAuthFailed.Equal(err) {
+				if socket.eventHandle != nil {
+					go socket.eventHandle(EVENT_TYPE_RECONNECT_FAILED_AUTH, nil)
+				}
+				return errors.As(err)
+			}
 			log.Warn("retry failed", errors.As(err, i))
 			time.Sleep(3e9)
 			continue
 		}
 
 		if socket.eventHandle != nil {
-			go socket.eventHandle(EventTypeReConnected, nil)
+			go socket.eventHandle(EVENT_TYPE_RECONNECTED, nil)
 		}
 
 		return nil
 	}
-	return errors.New("reconnection failed")
+	go socket.eventHandle(EVENT_TYPE_RECONNECT_FAILED, nil)
+	return errors.As(err)
 }
 
 // OnError handles WebSocket errors.
-func (socket *DefaultSocket) onError(evt error) {
-	if socket.verbose {
-		log.Info("OnError:", evt)
+func (socket *DefaultSocket) onError(status websocket.StatusCode, evt error) {
+	if status != websocket.StatusNormalClosure {
+		if socket.verbose {
+			log.Debug("OnError:", status, evt, socket.userClosed.Load())
+		}
+		if !socket.userClosed.Load() {
+			socket.reconnect(3)
+		}
 	}
-	socket.reconnect(math.MaxInt)
 }
 
 // handleEncodedData handles encoding of match_data_send and party_data_send fields.
@@ -264,7 +285,7 @@ func (socket *DefaultSocket) handleMessage(mType int, message []byte) error {
 	decoded := &rtapi.Envelope{}
 	if err := protojson.Unmarshal(message, decoded); err != nil {
 		if socket.eventHandle != nil {
-			go socket.eventHandle(EventTypeMessage, result)
+			go socket.eventHandle(EVENT_TYPE_MESSAGE, result)
 			return nil
 		}
 		return errors.As(err)
@@ -291,7 +312,7 @@ func (socket *DefaultSocket) handleMessage(mType int, message []byte) error {
 
 	// unknow message, notify to caller
 	if socket.eventHandle != nil {
-		go socket.eventHandle(EventTypeMessage, result)
+		go socket.eventHandle(EVENT_TYPE_MESSAGE, result)
 	} else {
 		log.Debug("uncatch result", result)
 	}
@@ -332,10 +353,10 @@ func (socket *DefaultSocket) Send(message *rtapi.Envelope, sendTimeout *int) any
 		*sendTimeout = DefaultTimeoutMs
 	}
 
-	t := time.NewTimer(time.Duration(*sendTimeout) * time.Millisecond)
+	timeout := time.Duration(*sendTimeout) * time.Millisecond
 	select {
-	case <-t.C:
-		return errors.New("timeout")
+	case <-time.After(timeout):
+		return errors.New("timeout").As(timeout)
 	case data := <-rsp: //
 		return data
 	}
@@ -780,7 +801,7 @@ func (socket *DefaultSocket) WriteChatMessage(channelID, content string) (*rtapi
 func (socket *DefaultSocket) pingPong(ctx context.Context) {
 	ticker := time.NewTicker(time.Duration(socket.heartbeatTimeoutMs) * time.Millisecond)
 	defer ticker.Stop()
-	log.Println("before pingpong socket is nil:", socket.adapter.socket == nil)
+	//log.Println("before pingpong socket is nil:", socket.adapter.socket == nil)
 
 	pingReq := &rtapi.Envelope{
 		Message: &rtapi.Envelope_Ping{
@@ -802,7 +823,8 @@ func (socket *DefaultSocket) pingPong(ctx context.Context) {
 				continue
 			}
 			if socket.eventHandle != nil {
-				go socket.eventHandle(EventTypePingPong, &RspResult{Data: []byte(time.Now().Sub(starTime).String())})
+				used := time.Now().Sub(starTime).String()
+				go socket.eventHandle(EVENT_TYPE_PING_PONG, &RspResult{Data: []byte(used)})
 			}
 		case <-ctx.Done():
 			return

@@ -16,7 +16,7 @@ const (
 	DefaultHost              = "127.0.0.1"
 	DefaultPort              = "7350"
 	DefaultServerKey         = "defaultkey"
-	DefaultTimeoutMs         = 7000
+	DefaultTimeoutMs         = 1000 * 30     // 30 sec
 	DefaultExpiredTimespanMs = 5 * 60 * 1000 // 5 minutes in milliseconds
 )
 
@@ -329,7 +329,7 @@ func (c *Client) BlockFriends(session *Session, ids []string, usernames []string
 }
 
 // CreateGroup creates a new group with the current user as the creator and superadmin.
-func (c *Client) CreateGroup(session *Session, request api.CreateGroupRequest) (*api.Group, error) {
+func (c *Client) CreateGroup(session *Session, request *api.CreateGroupRequest) (*api.Group, error) {
 	// Check if the session requires refresh
 	if c.AutoRefreshSession && session.RefreshToken != "" &&
 		session.IsExpired((time.Now().Unix()+c.ExpiredTimespanMs)/1000) {
@@ -340,7 +340,7 @@ func (c *Client) CreateGroup(session *Session, request api.CreateGroupRequest) (
 	}
 
 	// Call the API client to create the group
-	return c.ApiClient.CreateGroup(&session.Token, &request, make(map[string]string))
+	return c.ApiClient.CreateGroup(&session.Token, request, make(map[string]string))
 }
 
 // CreateSocket creates a socket using the client's configuration.
